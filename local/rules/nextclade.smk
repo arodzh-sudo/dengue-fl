@@ -24,14 +24,8 @@ rule get_nextclade_dataset:
     output:
         dataset="data/nextclade_data/{serotype}.zip",
     params:
-        nextclade_bin=config["nextclade"]["binary"],
         dataset_name=lambda wildcards: config["nextclade"]["dataset_name"].format(
             serotype=wildcards.serotype
-        ),
-        tag=lambda wildcards: (
-            f"--tag={config['nextclade']['dataset_tag']}"
-            if config["nextclade"].get("dataset_tag")
-            else ""
         ),
     wildcard_constraints:
         serotype="|".join(NEXTCLADE_SEROTYPES),
@@ -42,9 +36,8 @@ rule get_nextclade_dataset:
         r"""
         exec &> >(tee {log:q})
 
-        {params.nextclade_bin} dataset get \
+        nextclade dataset get \
             --name={params.dataset_name:q} \
-            {params.tag} \
             --output-zip={output.dataset:q}
         """
 
@@ -64,7 +57,6 @@ rule run_nextclade_local:
         nextclade="data/nextclade/{serotype}/nextclade.tsv",
     threads: 2
     params:
-        nextclade_bin=config["nextclade"]["binary"],
         columns="\\t".join(config["nextclade"]["field_map"].keys()),
     wildcard_constraints:
         serotype="|".join(NEXTCLADE_SEROTYPES),
@@ -75,7 +67,7 @@ rule run_nextclade_local:
         exec &> >(tee {log:q})
 
         if [[ -s {input.sequences:q} ]]; then
-            {params.nextclade_bin} run \
+            nextclade run \
                 --input-dataset {input.dataset:q} \
                 -j {threads} \
                 --output-tsv {output.nextclade:q} \

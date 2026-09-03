@@ -7,31 +7,29 @@ sequences against.
 
 ## Software requirements
 
-Create the conda environment described in [`envs/dengue-fl.yaml`](../envs/dengue-fl.yaml):
-
-```sh
-bash slurm/setup_env.sh          # on HiPerGator, from the repo root
-# or
-conda env create -f envs/dengue-fl.yaml
-```
+A Nextstrain runtime. Follow the [standard installation instructions](https://docs.nextstrain.org/en/latest/install.html),
+then confirm with `nextstrain check-setup`.
 
 ## Usage
 
-Run from the `ingest` directory:
+Run from the top level of the repository:
 
 ```sh
-cd ingest
-snakemake --cores 8
+nextstrain build ingest
 ```
 
 Fetch the raw NDJSON without running the rest:
 
 ```sh
-snakemake --cores 2 data/ncbi.ndjson
+nextstrain build ingest data/ncbi.ndjson
 ```
 
-On HiPerGator, submit [`slurm/run_ingest.sh`](../slurm/run_ingest.sh) instead.
-That script also documents what to do when compute nodes cannot reach NCBI.
+Core count and Snakemake flags come from [`profiles/default/config.yaml`](profiles/default/config.yaml),
+so neither invocation needs `--cores`.
+
+See the [HiPerGator section](../README.md#running-on-uf-hipergator) of the root
+README for running this under `srun`, including what to do when compute nodes
+cannot reach NCBI.
 
 This produces 10 files (within the `ingest` directory):
 

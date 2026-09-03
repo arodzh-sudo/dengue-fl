@@ -125,10 +125,6 @@ curate:
     "data_source",
   ]
 
-# Name of the Nextclade v3 executable on PATH.
-# Nextstrain Docker runtime: "nextclade3". bioconda `nextclade` package: "nextclade".
-nextclade_bin: "nextclade"
-
 nextclade:
   gene: ["E","C","prM","NS1","NS2A","NS2B","NS3","NS4A","2K","NS4B","NS5"]
   # Nextclade Fields to rename to metadata field names.
@@ -140,6 +136,3 @@ nextclade:
     coverage: genome_coverage
     failedCdses: failedCdses
   id_field: accession
-  # Pin the v-gen-lab dataset version so the ingest and local workflows assign
-  # lineages from the same dataset. Empty means "latest at download time".
-  dataset_tag: ""

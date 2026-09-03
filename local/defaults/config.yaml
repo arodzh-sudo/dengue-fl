@@ -5,7 +5,7 @@
 # workflow merges with the public GenBank data produced by ingest/.
 
 # Raw inputs. Override on the command line with, for example:
-#   snakemake --cores 4 --config local_sequences=/path/to/consensus.fasta
+#   nextstrain build local --config local_sequences=/path/to/consensus.fasta
 local_sequences: "input/sequences.fasta"
 local_metadata: "input/metadata.tsv"
 
@@ -51,12 +51,7 @@ validate:
   strict: false
 
 nextclade:
-  binary: "nextclade"
   dataset_name: "community/v-gen-lab/dengue/{serotype}"
-  # Pin this to the same value as nextclade.dataset_tag in
-  # ingest/defaults/config.yaml. Different dataset versions give local and
-  # public rows lineage calls that are not comparable.
-  dataset_tag: ""
   # Set to "../ingest/data/nextclade_data/v-gen-lab/{serotype}.zip" to reuse the
   # datasets ingest already downloaded and skip the network entirely.
   dataset_zip: ""

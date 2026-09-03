@@ -47,20 +47,86 @@ plus a "Data source" coloring that separates local sequences from public ones.
 
 ## Quick start
 
-```sh
-conda env create -f envs/dengue-fl.yaml
-conda activate dengue-fl
+Everything runs through the [Nextstrain CLI](https://docs.nextstrain.org/projects/cli/),
+which supplies the toolchain from its own managed runtime. Confirm you have one
+with `nextstrain check-setup`, then, from the repo root:
 
+```sh
 cat /path/to/daytona_output/assemblies_qc_pass/*.fasta > local/input/sequences.fasta
 cp local/defaults/metadata_template.tsv local/input/metadata.tsv   # then fill it in
 
-(cd ingest && snakemake --cores 8)
-(cd local  && snakemake --cores 4)
-(cd phylogenetic && snakemake --configfile build-configs/florida/config.yaml --cores 32)
+nextstrain build ingest
+nextstrain build local
+nextstrain build phylogenetic --configfile build-configs/florida/config.yaml --cores 8
 ```
 
-On UF HiPerGator, use the SLURM scripts in [`slurm/`](./slurm) instead. See
-[`slurm/README.md`](./slurm/README.md).
+`ingest` and `local` each carry a `profiles/default/`, so Snakemake picks up
+their core count and flags on its own. `phylogenetic` has none, matching
+upstream, so give it `--cores` explicitly.
+
+`ingest` and `local` are independent and can run in either order. Both must
+finish before `phylogenetic`.
+
+## Running on UF HiPerGator
+
+Conda is the only usable runtime here: docker is not installed, and singularity
+fails because the administrators disabled overlay support, which
+`--writable-tmpfs` requires. `nextstrain check-setup` will confirm that.
+
+Get an allocation, then work inside it:
+
+```sh
+srun --account=bphl-florida --qos=bphl-florida \
+     --cpus-per-task=8 --mem=32gb --time=08:00:00 --pty bash -i
+
+conda activate nextstrain          # provides the `nextstrain` command
+cd /blue/bphl-florida/$USER/dengue-fl
+nextstrain build ingest
+```
+
+Rough sizing per stage, to tune afterwards from `ingest/benchmarks/` and
+`phylogenetic/benchmarks/`:
+
+| Stage | Cores | Memory | Time |
+|---|---|---|---|
+| `ingest` | 8 | 32 GB | a few hours, mostly the NCBI download |
+| `local` | 4 | 8 GB | minutes |
+| `phylogenetic` | 32 | 128 GB | long |
+
+Before the phylogenetic build, pin the linear algebra libraries to one thread
+each:
+
+```sh
+export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1
+nextstrain build phylogenetic --configfile build-configs/florida/config.yaml --cores 32
+```
+
+`augur align` and `augur tree` already take eight threads apiece from Snakemake.
+Without those exports, the numpy underneath several concurrent `augur refine`
+runs will oversubscribe the allocation and slow everything down.
+
+If one allocation cannot cover all ten builds, run a serotype at a time by naming
+its two targets:
+
+```sh
+nextstrain build phylogenetic --configfile build-configs/florida/config.yaml --cores 8 \
+    auspice/dengue_denv1_genome.json auspice/dengue_denv1_E.json
+```
+
+The `all` build is the long pole, since it carries every serotype.
+
+If your partition's compute nodes have no outbound network, fetch the
+network-dependent targets on a login node first:
+
+```sh
+nextstrain build ingest --notemp \
+    data/ncbi_dataset.zip \
+    data/nextclade_data/v-gen-lab/denv{1,2,3,4}.zip
+```
+
+`--notemp` is not optional. The fetch rule marks `data/ncbi_dataset.zip` as a
+temporary file, so without it Snakemake deletes the download as soon as the rules
+consuming it finish.
 
 ## Private data
 

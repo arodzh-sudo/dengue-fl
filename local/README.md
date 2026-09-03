@@ -76,9 +76,12 @@ same way in the tree.
 ## Running it
 
 ```sh
-cd local
-snakemake --cores 4
+nextstrain build local
 ```
+
+Run it from the top level of the repository. Core count and Snakemake flags come
+from [`profiles/default/config.yaml`](profiles/default/config.yaml), so no
+`--cores` is needed.
 
 Outputs land in `local/results/`:
 
@@ -97,9 +100,8 @@ and warning.
 
 When validation fails, Snakemake deletes the outputs of the failed rule, so
 `results/validation_report.txt` will not be there. The same errors and warnings
-are in `logs/validate_local_metadata.txt`, which Snakemake leaves alone. The
-SLURM script passes `--show-failed-logs`, so on the cluster they also appear in
-the job output.
+are in `logs/validate_local_metadata.txt`, which Snakemake leaves alone. Add
+`--show-failed-logs` to have them printed to the terminal as well.
 
 ## What the validator rejects
 
@@ -122,18 +124,22 @@ samples enter the genome tree only because `include.txt` forces them past
 
 ## Reusing the Nextclade datasets from ingest
 
-By default this workflow downloads the v-gen-lab datasets itself. To skip the
-network and reuse what `ingest` already fetched, set in `defaults/config.yaml`:
+By default this workflow downloads the v-gen-lab datasets itself, which keeps it
+runnable on its own without waiting for a multi-hour ingest. The cost is that
+local and public sequences are lineage-called from two separate downloads, and if
+those straddle a dataset release the calls are not strictly comparable. Nothing
+in the pipeline warns you when that happens.
+
+Once the pipeline is routine, point this workflow at the datasets `ingest`
+already fetched. Both halves then share one dataset file, and this workflow stops
+needing the network at all. In `defaults/config.yaml`:
 
 ```yaml
 nextclade:
   dataset_zip: "../ingest/data/nextclade_data/v-gen-lab/{serotype}.zip"
 ```
 
-If you instead let both workflows download, pin `nextclade.dataset_tag` to the
-same value here and in `ingest/defaults/config.yaml`. Two different dataset
-versions give local and public sequences lineage calls that are not comparable,
-and nothing in the pipeline will warn you.
+Those zips are not marked `temp()`, so they survive after `ingest` finishes.
 
 ## A note on disclosure
 

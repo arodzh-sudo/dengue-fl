@@ -1,6 +1,7 @@
 from snakemake.utils import min_version
 
-min_version("8.0")
+# Snakemake 7.7.0 introduced the `retries` directive used in rules/nextclade.smk
+min_version("7.7.0")
 
 configfile: "defaults/config.yaml"
 

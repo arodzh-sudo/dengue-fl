@@ -1,8 +1,7 @@
 # Florida build: locally ingested GenBank data plus BPHL sequences.
 #
-# Run from the phylogenetic directory, after both ingest/ and local/ have
-# finished:
-#   snakemake --configfile build-configs/florida/config.yaml --cores 32
+# Run from the repo root, after both ingest/ and local/ have finished:
+#   nextstrain build phylogenetic --configfile build-configs/florida/config.yaml --cores 32
 #
 # Snakemake merges this file over defaults/config_dengue.yaml recursively, so
 # only the differences are listed. The full filter block is restated because
@@ -44,7 +43,3 @@ export:
   maintainers:
     - name: "Florida Bureau of Public Health Laboratories"
   build_url: "https://github.com/arodzh-sudo/dengue-fl"
-
-# bioconda ships the Nextclade v3 binary as `nextclade`; the Nextstrain Docker
-# runtime ships it as `nextclade3`.
-nextclade_bin: "nextclade"

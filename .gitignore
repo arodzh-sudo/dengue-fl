@@ -47,5 +47,3 @@ Icon?
 ehthumbs.db
 Thumbs.db
 
-# Scratch dir used by the SLURM scripts
-.tmp/

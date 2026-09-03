@@ -6,20 +6,22 @@ JSONs for local use, including the Florida build described below.
 
 ## Software requirements
 
-Create the conda environment described in [`envs/dengue-fl.yaml`](../envs/dengue-fl.yaml):
-
-```sh
-bash slurm/setup_env.sh          # on HiPerGator, from the repo root
-# or
-conda env create -f envs/dengue-fl.yaml
-```
+A Nextstrain runtime. Follow the [standard installation instructions](https://docs.nextstrain.org/en/latest/install.html),
+then confirm with `nextstrain check-setup`.
 
 ## Usage
 
-Run from the `phylogenetic` directory:
+For the Florida build, which is what this fork is for, skip to
+[Florida build](#florida-build) below.
 
-    cd phylogenetic
-    snakemake --cores 8
+Running without a build config uses the upstream defaults, which fetch inputs
+from `data.nextstrain.org` over HTTPS rather than from this repository's own
+`ingest` output:
+
+    nextstrain build phylogenetic --cores 8
+
+This workflow has no `profiles/default/`, matching upstream, so `--cores` is
+required.
 
 Build output goes into the directories `data/`, `results/` and `auspice/`.
 
@@ -88,11 +90,10 @@ inputs:
 
 ### Using example data
 
-Alternatively, you can run the build using the
-example data provided in this repository.  Before running the build, copy the
-example sequences into the `data/` directory like so:
+Alternatively, you can run the build against the example data in
+[`example_data/`](example_data), which touches no network:
 
-    snakemake --configfile build-configs/ci/config.yaml --cores 4
+    nextstrain build phylogenetic --configfile build-configs/ci/config.yaml --cores 4
 
 ### Florida build
 
@@ -101,8 +102,7 @@ output instead of `data.nextstrain.org`, and merges in the locally sequenced
 genomes prepared by [`local/`](../local). Run both of those first, then:
 
 ```sh
-cd phylogenetic
-snakemake --configfile build-configs/florida/config.yaml --cores 32
+nextstrain build phylogenetic --configfile build-configs/florida/config.yaml --cores 32
 ```
 
 That writes ten Auspice datasets to `phylogenetic/auspice/`, one for each
@@ -110,7 +110,9 @@ serotype and gene combination, plus their tip-frequency sidecars. Send the JSON
 files to colleagues and they can open them by drag and drop at
 [auspice.us](https://auspice.us).
 
-On HiPerGator, submit [`slurm/run_phylo.sh`](../slurm/run_phylo.sh) instead.
+See the [HiPerGator section](../README.md#running-on-uf-hipergator) of the root
+README for running this under `srun`, including the thread-pinning exports and
+how to split the build by serotype.
 
 Two things in [`build-configs/florida/config.yaml`](build-configs/florida/config.yaml)
 are worth knowing about before you edit it:

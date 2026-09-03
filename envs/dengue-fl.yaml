@@ -1,0 +1,25 @@
+name: dengue-fl
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - python >=3.11
+  # Snakemake 8 is required: shared/vendored/snakemake/remote_files.smk uses the
+  # `storage:` directive and annotates helpers with snakemake.storage.StorageProviderProxy.
+  - snakemake-minimal >=8.0
+  - augur >=34.1.0
+  - nextclade >=3
+  - ncbi-datasets-cli
+  - csvtk
+  - tsv-utils
+  # augur merge shells out to both of these
+  - sqlite
+  - seqkit
+  - mafft
+  - iqtree
+  - treetime
+  - biopython
+  - pandas
+  - packaging
+  - unzip
+  - zstd

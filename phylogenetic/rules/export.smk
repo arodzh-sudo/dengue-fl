@@ -52,22 +52,28 @@ rule prepare_auspice_config:
         replace_clade_key=lambda wildcard: r"clade_membership" if wildcard.gene in ['genome'] else r"major_lineage",
         replace_clade_title=lambda wildcard: r"Serotype" if wildcard.serotype in ['all'] else r"Genotype (Nextclade)",
     run:
+        export_config = config.get("export", {})
         data = {
-            "title": "Real-time tracking of dengue virus evolution",
-            "maintainers": [
+            "title": export_config.get("title", "Real-time tracking of dengue virus evolution"),
+            "maintainers": export_config.get("maintainers", [
               {"name": "the Nextstrain team", "url": "https://nextstrain.org/team"}
-            ],
+            ]),
             "data_provenance": [
               {
                 "name": "GenBank",
                 "url": "https://www.ncbi.nlm.nih.gov/genbank/"
               }
             ],
-            "build_url": "https://github.com/nextstrain/dengue",
+            "build_url": export_config.get("build_url", "https://github.com/nextstrain/dengue"),
             "colorings": [
               {
                 "key": "gt",
                 "title": "Genotype",
+                "type": "categorical"
+              },
+              {
+                "key": "data_source",
+                "title": "Data source",
                 "type": "categorical"
               },
               {
@@ -119,6 +125,21 @@ rule prepare_auspice_config:
                 "key": "host_type",
                 "title": "Host Type",
                 "type": "categorical"
+              },
+              {
+                "key": "division",
+                "title": "State or division",
+                "type": "categorical"
+              },
+              {
+                "key": "case_origin",
+                "title": "Case origin",
+                "type": "categorical"
+              },
+              {
+                "key": "travel_country",
+                "title": "Travel country",
+                "type": "categorical"
               }
             ],
             "geo_resolutions": [
@@ -131,6 +152,8 @@ rule prepare_auspice_config:
               "tip_label": "strain"
             },
             "filters": [
+              "data_source",
+              "division",
               "country",
               "region",
               "author"
@@ -144,7 +167,10 @@ rule prepare_auspice_config:
             "metadata_columns": [
               "accession",
               "strain",
-              "url"
+              "url",
+              "data_source",
+              "division",
+              "location"
             ]
           }
 

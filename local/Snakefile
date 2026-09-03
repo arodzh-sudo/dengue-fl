@@ -1,0 +1,33 @@
+from snakemake.utils import min_version
+
+min_version("8.0")
+
+configfile: "defaults/config.yaml"
+
+SEROTYPES = ['all', 'denv1', 'denv2', 'denv3', 'denv4']
+NEXTCLADE_SEROTYPES = ['denv1', 'denv2', 'denv3', 'denv4']
+
+wildcard_constraints:
+    serotype = "|".join(SEROTYPES)
+
+
+rule all:
+    input:
+        expand("results/metadata_{serotype}.tsv", serotype=SEROTYPES),
+        expand("results/sequences_{serotype}.fasta", serotype=SEROTYPES),
+        expand("results/include_{serotype}.txt", serotype=SEROTYPES),
+        "results/validation_report.txt",
+
+
+include: "rules/validate.smk"
+include: "rules/nextclade.smk"
+include: "rules/finalize.smk"
+
+
+rule clean:
+    """Removing directories: {params}"""
+    params:
+        "data ",
+        "results"
+    shell:
+        "rm -rfv {params}"

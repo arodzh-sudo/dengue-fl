@@ -24,12 +24,15 @@ rule get_nextclade_dataset:
         "benchmarks/{serotype}/get_nextclade_dataset.txt"
     params:
         dataset_name=lambda wildcards: f"community/v-gen-lab/dengue/{wildcards.serotype}",
+        nextclade_bin=config["nextclade_bin"],
+        tag=lambda wildcards: f"--tag={config['nextclade']['dataset_tag']}" if config["nextclade"].get("dataset_tag") else "",
     wildcard_constraints:
         serotype=SEROTYPE_CONSTRAINTS,
     shell:
         r"""
-        nextclade3 dataset get \
+        {params.nextclade_bin} dataset get \
             --name={params.dataset_name:q} \
+            {params.tag} \
             --output-zip={output.dataset} \
             --verbose
         """
@@ -52,6 +55,7 @@ rule run_nextclade:
     threads: 4
     params:
         output_translations = lambda wildcards: f"data/v-gen-lab/{wildcards.serotype}/translations/{{cds}}/seqs.gene.fasta",
+        nextclade_bin=config["nextclade_bin"],
     log:
         "logs/v-gen-lab/{serotype}/run_nextclade.txt",
     benchmark:
@@ -60,7 +64,7 @@ rule run_nextclade:
         serotype=SEROTYPE_CONSTRAINTS
     shell:
         r"""
-        nextclade3 run \
+        {params.nextclade_bin} run \
             --input-dataset {input.dataset} \
             -j {threads} \
             --output-tsv {output.nextclade} \

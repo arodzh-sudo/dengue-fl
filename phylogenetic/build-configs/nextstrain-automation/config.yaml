@@ -1,4 +1,0 @@
-custom_rules:
-  - build-configs/nextstrain-automation/deploy.smk
-
-deploy_url: "s3://nextstrain-data"

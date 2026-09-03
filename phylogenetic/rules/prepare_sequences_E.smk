@@ -50,9 +50,10 @@ rule align_and_extract_E:
         "benchmarks/{serotype}/align_and_extract_E.txt"
     params:
         min_length = 1000,
+        nextclade_bin = config["nextclade_bin"],
     shell:
         """
-        nextclade run \
+        {params.nextclade_bin} run \
            -j 1 \
            --input-ref {input.reference} \
            --output-fasta {output.sequences} \

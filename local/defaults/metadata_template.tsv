@@ -1,0 +1,4 @@
+sample_id	serotype	collection_date	location	case_origin	travel_country	host	strain	notes
+# Delete these two comment lines and the example row below, then add one row per sample.
+# Required: sample_id, serotype, collection_date. Everything else is optional.
+# FL-BPHL-26-0001	denv1	2026-07-14	Miami-Dade	travel-associated	Cuba	Homo sapiens		Daytona run 260714_M1

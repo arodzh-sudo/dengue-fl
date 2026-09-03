@@ -101,19 +101,25 @@ rule add_metadata_columns:
     """Add columns to metadata
     Notable columns:
     - [NEW] url: URL linking to the NCBI GenBank record ('https://www.ncbi.nlm.nih.gov/nuccore/*').
+    - [NEW] data_source: constant marking these records as public, so Auspice can
+      separate them from locally sequenced samples merged in downstream.
     """
     input:
         metadata="data/all_metadata_curated.tsv",
     output:
         metadata = temp("data/all_metadata_added.tsv")
     params:
-        accession=config['curate']['genbank_accession']
+        accession=config['curate']['genbank_accession'],
+        data_source=config['curate']['data_source'],
     shell:
         """
         csvtk mutate2 -t \
           -n url \
           -e '"https://www.ncbi.nlm.nih.gov/nuccore/" + ${params.accession}' \
           {input.metadata} \
+        | csvtk mutate2 -t \
+          -n data_source \
+          -e '"{params.data_source}"' \
         > {output.metadata}
         """
 

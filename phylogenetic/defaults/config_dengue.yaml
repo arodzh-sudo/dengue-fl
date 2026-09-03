@@ -10,6 +10,10 @@ inputs:
     metadata: "https://data.nextstrain.org/files/workflows/dengue/metadata_{serotype}.tsv.zst"
     sequences: "https://data.nextstrain.org/files/workflows/dengue/sequences_{serotype}.fasta.zst"
 
+# Name of the Nextclade v3 executable on PATH.
+# Nextstrain Docker runtime: "nextclade3". bioconda `nextclade` package: "nextclade".
+nextclade_bin: "nextclade"
+
 strain_id_field: "accession"
 display_strain_field: "strain"
 

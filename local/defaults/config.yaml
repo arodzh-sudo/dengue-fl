@@ -1,0 +1,97 @@
+# Configuration for the local (private) sequence preparation workflow.
+#
+# This workflow turns consensus genomes from the Daytona_dengue pipeline plus a
+# hand-filled metadata TSV into per-serotype files that the phylogenetic
+# workflow merges with the public GenBank data produced by ingest/.
+
+# Raw inputs. Override on the command line with, for example:
+#   snakemake --cores 4 --config local_sequences=/path/to/consensus.fasta
+local_sequences: "input/sequences.fasta"
+local_metadata: "input/metadata.tsv"
+
+# Values stamped onto every local record. These strings must match the values
+# ingest produces, or colorings and traits will fragment into duplicate
+# categories:
+#   country / region -> phylogenetic/defaults/color_orderings.tsv
+#   host_genus / host_type -> ingest/defaults/host_hostgenus_hosttype_map.tsv
+constants:
+  country: "USA"
+  region: "North America"
+  division: "Florida"
+  host: "Homo sapiens"
+  host_genus: "Homo"
+  host_type: "Human"
+  is_lab_host: "false"
+  institution: "Florida Department of Health, Bureau of Public Health Laboratories"
+  authors: "FL BPHL"
+  full_authors: "Florida Department of Health, Bureau of Public Health Laboratories"
+  url: ""
+  # Paired with curate.data_source in ingest/defaults/config.yaml. These two
+  # values become the Auspice "Data source" coloring.
+  data_source: "Florida BPHL"
+
+# Auspice display name. Available fields: serotype_number, country, accession, year.
+strain_template: "DENV{serotype_number}/{country}/{accession}/{year}"
+
+validate:
+  # Sample identifiers must be unique, stable across runs, free of characters
+  # that break Newick and Auspice, and structurally incapable of colliding with
+  # a GenBank accession.
+  id_regex: "^FL-[A-Z0-9]{2,10}-[0-9]{2}-[0-9]{4}$"
+  required_columns: ["sample_id", "serotype", "collection_date"]
+  optional_columns: ["strain", "country", "region", "division", "location", "host",
+                     "case_origin", "travel_country", "authors", "institution", "notes"]
+  allowed_serotypes: ["denv1", "denv2", "denv3", "denv4"]
+  # Below this many unambiguous bases a sample cannot pass `augur filter
+  # --min-length 5000` on its own merit and only reaches the genome tree because
+  # include.txt forces it in.
+  min_ungapped_length: 5000
+  max_ambiguous_fraction: 0.30
+  # true turns every warning into a hard error.
+  strict: false
+
+nextclade:
+  binary: "nextclade"
+  dataset_name: "community/v-gen-lab/dengue/{serotype}"
+  # Pin this to the same value as nextclade.dataset_tag in
+  # ingest/defaults/config.yaml. Different dataset versions give local and
+  # public rows lineage calls that are not comparable.
+  dataset_tag: ""
+  # Set to "../ingest/data/nextclade_data/v-gen-lab/{serotype}.zip" to reuse the
+  # datasets ingest already downloaded and skip the network entirely.
+  dataset_zip: ""
+  field_map:
+    seqName: accession
+    clade: genotype_nextclade
+
+# Output column order. Any column missing after the merge is created empty.
+# A superset of curate.metadata_columns in ingest/defaults/config.yaml.
+metadata_columns:
+  - strain
+  - accession
+  - accession_version
+  - date
+  - region
+  - country
+  - division
+  - location
+  - length
+  - host
+  - host_genus
+  - host_type
+  - is_lab_host
+  - date_released
+  - date_updated
+  - authors
+  - full_authors
+  - institution
+  - serotype_genbank
+  - url
+  - data_source
+  - genotype_nextclade
+  - genotype
+  - major_lineage
+  - minor_lineage
+  - case_origin
+  - travel_country
+  - notes

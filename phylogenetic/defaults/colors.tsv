@@ -269,3 +269,8 @@ minor_lineage	4II_B.1.2	#78ad8a
 minor_lineage	4II_B.2	#87c197
 minor_lineage	4III	#dfbf88
 minor_lineage	4IV	#d36c59
+data_source	GenBank	#bbbbbb
+data_source	Florida BPHL	#e4572e
+case_origin	local	#b22222
+case_origin	travel-associated	#2e86ab
+case_origin	unknown	#bbbbbb

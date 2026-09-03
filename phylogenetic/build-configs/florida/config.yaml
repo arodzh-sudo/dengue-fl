@@ -1,0 +1,50 @@
+# Florida build: locally ingested GenBank data plus BPHL sequences.
+#
+# Run from the phylogenetic directory, after both ingest/ and local/ have
+# finished:
+#   snakemake --configfile build-configs/florida/config.yaml --cores 32
+#
+# Snakemake merges this file over defaults/config_dengue.yaml recursively, so
+# only the differences are listed. The full filter block is restated because
+# relying on a partial merge of a nested key is a silent-failure risk.
+
+serotypes: ['all', 'denv1', 'denv2', 'denv3', 'denv4']
+genes: ['genome', 'E']
+
+# Repointed from data.nextstrain.org to this machine's own ingest output, so the
+# public half of the build is pinned alongside the private half. These are plain
+# relative paths, so path_or_url() returns them unchanged and no storage plugin
+# or credential is involved.
+inputs:
+  - name: ncbi
+    metadata: "../ingest/results/metadata_{serotype}.tsv"
+    sequences: "../ingest/results/sequences_{serotype}.fasta"
+
+additional_inputs:
+  - name: florida
+    metadata: "../local/results/metadata_{serotype}.tsv"
+    sequences: "../local/results/sequences_{serotype}.fasta"
+
+filter:
+  exclude: "defaults/exclude.txt"
+  # augur filter --include takes multiple files. The second one holds every local
+  # sample ID, which is what stops subsample_max_sequences from discarding them.
+  include:
+    - "defaults/{serotype}/include.txt"
+    - "../local/results/include_{serotype}.txt"
+  group_by: "year region"
+  min_length:
+    genome: 5000
+    E: 1000
+  subsample_max_sequences: '4000'
+
+export:
+  description: "defaults/description.md"
+  title: "Dengue virus in Florida"
+  maintainers:
+    - name: "Florida Bureau of Public Health Laboratories"
+  build_url: "https://github.com/arodzh-sudo/dengue-fl"
+
+# bioconda ships the Nextclade v3 binary as `nextclade`; the Nextstrain Docker
+# runtime ships it as `nextclade3`.
+nextclade_bin: "nextclade"

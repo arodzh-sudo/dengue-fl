@@ -261,10 +261,35 @@ def main():
             )
 
         case_origin = record.get("case_origin", "")
-        if case_origin not in CASE_ORIGINS:
-            warnings.append(f"{sample_id}: case_origin {case_origin!r} is not one of {sorted(CASE_ORIGINS)}")
-        if record.get("travel_country") and case_origin != "travel-associated":
-            warnings.append(f"{sample_id}: travel_country is set but case_origin is {case_origin!r}")
+        if case_origin and case_origin not in CASE_ORIGINS:
+            warnings.append(
+                f"{sample_id}: case_origin {case_origin!r} is not one of {sorted(CASE_ORIGINS)}"
+            )
+
+        if travel_country:
+            if not case_origin:
+                # Recording a travel country is what travel-associated means.
+                case_origin = "travel-associated"
+            elif case_origin != "travel-associated":
+                warnings.append(
+                    f"{sample_id}: travel_country is set but case_origin is {case_origin!r}"
+                )
+            if host_type and host_type != "Human":
+                warnings.append(
+                    f"{sample_id}: travel_country is set on a {host_type.lower()} sample. "
+                    "Vectors are collected where they are found, so the exposure country "
+                    "should be the collection country and a suspected origin belongs in notes"
+                )
+        elif not case_origin:
+            # Deliberately not defaulted to "local". An unrecorded travel history
+            # and an uninvestigated one look identical here, and asserting local
+            # transmission that was never established is the worse error.
+            warnings.append(
+                f"{sample_id}: case_origin is blank, so it will render as an empty "
+                "category in Auspice. Set it to 'local' or 'unknown'"
+            )
+
+        record["case_origin"] = case_origin
 
         records.append(record)
 

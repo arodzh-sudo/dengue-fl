@@ -70,7 +70,7 @@ fill one row per sample.
 | `nextclade_clade` | yes | the v-gen-lab lineage from Daytona, e.g. `2II_F.1.1.2` |
 | `collection_date` | yes | `YYYY-MM-DD`, or `YYYY-MM-XX` / `YYYY-XX-XX` when partial |
 | `location` | no | county |
-| `case_origin` | no | `local`, `travel-associated`, or `unknown` |
+| `case_origin` | no | `local`, `travel-associated`, or `unknown`; set automatically when `travel_country` is filled |
 | `travel_country` | no | where infection likely occurred; drives country_exposure |
 | `host` | no | defaults to `Homo sapiens`; set to `Aedes aegypti` for vector pools |
 | `strain` | no | overrides the derived Auspice display name |
@@ -83,6 +83,14 @@ the two exposure columns are all derived, using the same values and spellings as
 the public metadata so that colorings do not split into duplicate categories.
 
 ### Imported cases
+
+Setting `travel_country` also sets `case_origin` to `travel-associated`, since
+recording a travel country is what that means. The reverse is not inferred: a
+blank `case_origin` with no travel history earns a warning rather than a default
+of `local`, because an untravelled case and an uninvestigated one look identical
+in the data and asserting local transmission you never established is the worse
+error. Vector samples get a warning if `travel_country` is set, since mosquitoes
+are collected where they are found.
 
 Fill in `travel_country` and the workflow sets `country_exposure` to it, and
 `region_exposure` to whichever region that country sits in according to

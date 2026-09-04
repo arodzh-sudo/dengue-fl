@@ -49,8 +49,7 @@ rule validate_local_metadata:
             --rules {params.rules:q} \
             --strain-template {params.strain_template:q} \
             --output-metadata {output.metadata:q} \
-            --output-report {output.report:q} \
-            {params.strict}
+            --output-report {output.report:q} {params.strict}
         """
 
 

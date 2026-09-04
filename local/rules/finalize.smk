@@ -1,12 +1,11 @@
 """
-This part of the workflow merges the Nextclade calls into the validated
-metadata, derives the lineage levels, and writes the per-serotype files the
-phylogenetic workflow consumes as additional_inputs.
+This part of the workflow derives the lineage levels from the Nextclade call
+supplied with each sample and writes the per-serotype files the phylogenetic
+workflow consumes as additional_inputs.
 
 REQUIRED INPUTS:
 
     metadata  = data/metadata_validated.tsv
-    nextclade = data/nextclade_metadata.tsv
     sequences = data/sequences_all.fasta
 
 OUTPUTS:
@@ -15,33 +14,6 @@ OUTPUTS:
     sequences = results/sequences_{serotype}.fasta
     include   = results/include_{serotype}.txt
 """
-
-
-rule append_nextclade_columns:
-    """Mirrors ingest rule append_nextclade_and_gene_coverage_columns, without the
-    gene coverage columns, which the phylogenetic workflow does not read."""
-    input:
-        metadata="data/metadata_validated.tsv",
-        nextclade="data/nextclade_metadata.tsv",
-    output:
-        metadata="data/metadata_nextclade.tsv",
-    params:
-        id_field="accession",
-    log:
-        "logs/append_nextclade_columns.txt",
-    shell:
-        r"""
-        augur merge \
-            --metadata \
-                metadata={input.metadata:q} \
-                nextclade={input.nextclade:q} \
-            --metadata-id-columns \
-                metadata={params.id_field:q} \
-                nextclade={params.id_field:q} \
-            --output-metadata {output.metadata:q} \
-            --no-source-columns \
-        &> {log:q}
-        """
 
 
 rule infer_major_lineage:
@@ -56,7 +28,7 @@ rule infer_major_lineage:
       1I_A.2.3 -> genotype 1I, major_lineage 1I_A, minor_lineage 1I_A.2.3
     """
     input:
-        metadata="data/metadata_nextclade.tsv",
+        metadata="data/metadata_validated.tsv",
     output:
         metadata="data/metadata_lineages.tsv",
     params:

@@ -140,6 +140,16 @@ rule prepare_auspice_config:
                 "key": "travel_country",
                 "title": "Travel country",
                 "type": "categorical"
+              },
+              {
+                "key": "country_exposure",
+                "title": "Country of exposure",
+                "type": "categorical"
+              },
+              {
+                "key": "region_exposure",
+                "title": "Region of exposure",
+                "type": "categorical"
               }
             ],
             "geo_resolutions": [

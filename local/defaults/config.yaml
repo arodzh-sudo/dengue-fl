@@ -18,9 +18,10 @@ constants:
   country: "USA"
   region: "North America"
   division: "Florida"
+  # Default host. Override per sample with a host column; the converter does
+  # this for mosquito pools. host_genus and host_type are not set here: they are
+  # looked up from host via validate.host_map so they always match ingest.
   host: "Homo sapiens"
-  host_genus: "Homo"
-  host_type: "Human"
   is_lab_host: "false"
   institution: "Florida Department of Health, Bureau of Public Health Laboratories"
   authors: "FL BPHL"
@@ -34,11 +35,21 @@ constants:
 strain_template: "DENV{serotype_number}/{country}/{accession}/{year}"
 
 validate:
-  # Sample identifiers must be unique, stable across runs, free of characters
-  # that break Newick and Auspice, and structurally incapable of colliding with
-  # a GenBank accession.
-  id_regex: "^FL-[A-Z0-9]{2,10}-[0-9]{2}-[0-9]{4}$"
-  required_columns: ["sample_id", "serotype", "collection_date"]
+  # Sample identifiers must be unique, stable across runs, and free of the
+  # characters that break Newick trees and Auspice node names. Anything the lab
+  # already uses is fine, e.g. TVU26000019 or MosquitoPool_K26-10948.
+  id_regex: "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+  # Local identifiers are checked against the public accessions in this file when
+  # it exists. On a duplicate ID augur merge silently keeps one sequence and
+  # discards the other, so a collision has to be caught here.
+  public_metadata: "../ingest/results/metadata_all.tsv"
+  # The same host to host_genus/host_type map ingest uses, so a mosquito pool is
+  # labelled Aedes/Mosquito with the exact spellings the public rows carry.
+  host_map: "../ingest/defaults/host_hostgenus_hosttype_map.tsv"
+  # Country to region lookup for travel_country, read from the Auspice colour
+  # ordering file so exposure regions use the same names as everything else.
+  region_map: "../phylogenetic/defaults/color_orderings.tsv"
+  required_columns: ["sample_id", "serotype", "collection_date", "nextclade_clade"]
   optional_columns: ["strain", "country", "region", "division", "location", "host",
                      "case_origin", "travel_country", "authors", "institution", "notes"]
   allowed_serotypes: ["denv1", "denv2", "denv3", "denv4"]
@@ -49,15 +60,6 @@ validate:
   max_ambiguous_fraction: 0.30
   # true turns every warning into a hard error.
   strict: false
-
-nextclade:
-  dataset_name: "community/v-gen-lab/dengue/{serotype}"
-  # Set to "../ingest/data/nextclade_data/v-gen-lab/{serotype}.zip" to reuse the
-  # datasets ingest already downloaded and skip the network entirely.
-  dataset_zip: ""
-  field_map:
-    seqName: accession
-    clade: genotype_nextclade
 
 # Output column order. Any column missing after the merge is created empty.
 # A superset of curate.metadata_columns in ingest/defaults/config.yaml.
@@ -83,6 +85,8 @@ metadata_columns:
   - serotype_genbank
   - url
   - data_source
+  - country_exposure
+  - region_exposure
   - genotype_nextclade
   - genotype
   - major_lineage

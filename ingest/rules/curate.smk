@@ -103,6 +103,10 @@ rule add_metadata_columns:
     - [NEW] url: URL linking to the NCBI GenBank record ('https://www.ncbi.nlm.nih.gov/nuccore/*').
     - [NEW] data_source: constant marking these records as public, so Auspice can
       separate them from locally sequenced samples merged in downstream.
+    - [NEW] country_exposure, region_exposure: where infection likely occurred,
+      which augur traits reconstructs from instead of the collection location.
+      GenBank carries no travel history, so these copy country and region. Local
+      samples set them from travel_country when a case was imported.
     """
     input:
         metadata="data/all_metadata_curated.tsv",
@@ -120,6 +124,8 @@ rule add_metadata_columns:
         | csvtk mutate2 -t \
           -n data_source \
           -e '"{params.data_source}"' \
+        | csvtk mutate2 -t -n country_exposure -e '$country' \
+        | csvtk mutate2 -t -n region_exposure -e '$region' \
         > {output.metadata}
         """
 

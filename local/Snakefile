@@ -1,12 +1,10 @@
 from snakemake.utils import min_version
 
-# Snakemake 7.7.0 introduced the `retries` directive used in rules/nextclade.smk
 min_version("7.7.0")
 
 configfile: "defaults/config.yaml"
 
-SEROTYPES = ['all', 'denv1', 'denv2', 'denv3', 'denv4']
-NEXTCLADE_SEROTYPES = ['denv1', 'denv2', 'denv3', 'denv4']
+SEROTYPES = ["all", "denv1", "denv2", "denv3", "denv4"]
 
 wildcard_constraints:
     serotype = "|".join(SEROTYPES)
@@ -21,7 +19,6 @@ rule all:
 
 
 include: "rules/validate.smk"
-include: "rules/nextclade.smk"
 include: "rules/finalize.smk"
 
 

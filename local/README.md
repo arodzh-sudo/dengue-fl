@@ -3,9 +3,9 @@
 Prepares privately sequenced dengue consensus genomes so the phylogenetic
 workflow can place them on a tree alongside public GenBank data.
 
-This workflow validates a hand-filled metadata table, assigns dengue lineages
-with the same Nextclade datasets `ingest` uses, and writes one metadata file,
-one sequence file, and one include list per serotype.
+This workflow validates your metadata table, derives the dengue lineage levels
+from the Nextclade call `Daytona_dengue` already made, and writes one metadata
+file, one sequence file, and one include list per serotype.
 
 ## What you provide
 
@@ -27,51 +27,98 @@ identifier, matching the bare accessions `ingest` writes.
 
 ### `local/input/metadata.tsv`
 
-Copy `defaults/metadata_template.tsv` and fill one row per sample.
+Generate it from the `Daytona_dengue` run rather than typing it out:
+
+```sh
+python3 local/scripts/summary-report-to-metadata.py \
+    --summary-report /path/to/daytona_output/summary_report.txt \
+    --output local/input/metadata.tsv
+```
+
+That fills in `sample_id`, `serotype`, and `nextclade_clade`, all of which the
+pipeline already determined, and leaves `collection_date` and the epidemiological
+columns for you. It keeps only samples whose `vadr_flag` is `PASS` and prints every sample it dropped, with
+the reason. To include the `REVIEW` tier as well:
+
+```sh
+    --vadr-flags PASS,REVIEW
+```
+
+Samples whose serotype is `unclassified` are always dropped, because there is no
+v-gen-lab dataset to place them against.
+
+Mosquito pools are detected from the sample identifier and get `host` set to
+`Aedes aegypti` instead of the human default, which the workflow then resolves to
+`Aedes` and `Mosquito` through ingest's own host map. The converter names every
+sample it treated this way. Adjust with `--vector-pattern` and `--vector-host` if
+your identifiers or species differ; the host value has to appear in
+`ingest/defaults/host_hostgenus_hosttype_map.tsv` or you get a warning and the
+genus and type fall back to the host name.
+
+The FASTA may contain more samples than the metadata. Anything present in the
+sequences but absent from the metadata is excluded with a warning, so
+concatenating all of `assemblies_qc_pass/` and then letting this script decide
+what enters the trees is the intended workflow.
+
+To write the table by hand instead, copy `defaults/metadata_template.tsv` and
+fill one row per sample.
 
 | Column | Required | Notes |
 |---|---|---|
 | `sample_id` | yes | must match a FASTA header, and must be unique |
 | `serotype` | yes | `denv1` through `denv4`; `DENV1` and `1` are accepted and normalized |
+| `nextclade_clade` | yes | the v-gen-lab lineage from Daytona, e.g. `2II_F.1.1.2` |
 | `collection_date` | yes | `YYYY-MM-DD`, or `YYYY-MM-XX` / `YYYY-XX-XX` when partial |
 | `location` | no | county |
 | `case_origin` | no | `local`, `travel-associated`, or `unknown` |
-| `travel_country` | no | country of exposure for travel-associated cases |
-| `host` | no | defaults to `Homo sapiens` |
+| `travel_country` | no | where infection likely occurred; drives country_exposure |
+| `host` | no | defaults to `Homo sapiens`; set to `Aedes aegypti` for vector pools |
 | `strain` | no | overrides the derived Auspice display name |
 | `country`, `region`, `division` | no | default to `USA`, `North America`, `Florida` |
 | `authors`, `institution`, `notes` | no | default to the values in `defaults/config.yaml` |
 
 Everything else is filled in automatically. `serotype_genbank`, `is_lab_host`,
-`host_genus`, `host_type`, `length`, `data_source`, and the four lineage columns
-are all derived, and they use the same values and spellings as the public
-metadata so that colorings do not split into duplicate categories.
+`host_genus`, `host_type`, `length`, `data_source`, the three lineage levels, and
+the two exposure columns are all derived, using the same values and spellings as
+the public metadata so that colorings do not split into duplicate categories.
+
+### Imported cases
+
+Fill in `travel_country` and the workflow sets `country_exposure` to it, and
+`region_exposure` to whichever region that country sits in according to
+`phylogenetic/defaults/color_orderings.tsv`. Leave it blank and both fall back to
+the collection country and region.
+
+This matters because `augur traits` reconstructs ancestral geography from the
+exposure columns, not from `country`. A case acquired in Cuba but reported in
+Florida would otherwise make Florida look like the source of that lineage. The
+map still places the sample in the USA, so it continues to read as Florida
+surveillance; only the reconstruction uses the exposure value. This is the same
+pattern the Nextstrain ncov builds used.
 
 ## Sample identifiers
 
-```
-FL-BPHL-<YY>-<NNNN>
-```
+Use whatever your lab already uses. `TVU26000019`, `JVV25001903`, and
+`MosquitoPool_K26-10948` all work as-is.
 
-For example `FL-BPHL-26-0042`. The identifier lands in the `accession` column,
-which is what the phylogenetic workflow keys tips on, and it must equal the
-FASTA header.
+The identifier lands in the `accession` column, which is what the phylogenetic
+workflow keys tips on, and it must equal the FASTA header. Three properties
+matter, and the validator checks all three:
 
-Three properties matter, and the validator enforces all three:
+- Only letters, digits, and `_ . -`. Spaces, slashes, colons, commas, and pipes
+  break Newick trees and Auspice node names. This is `validate.id_regex` in
+  `defaults/config.yaml`.
+- Unique within a run, and stable across runs, so a sample keeps the same tip
+  every time you rebuild.
+- Not already a public GenBank accession. On a collision `augur merge` silently
+  keeps one of the two sequences and discards the other, so the validator
+  compares your identifiers against `../ingest/results/metadata_all.tsv` when
+  that file exists.
 
-- The `FL-` prefix makes a collision with a GenBank accession structurally
-  impossible. On a collision, `augur merge` would silently keep one sequence and
-  drop the other.
-- Only letters, digits, and hyphens. Spaces, slashes, colons, commas, and pipes
-  break Newick trees and Auspice node names.
-- Stable across runs, so a sample keeps the same tip every time you rebuild.
-
-Change `validate.id_regex` in `defaults/config.yaml` if your lab uses a different
-scheme, but keep the three properties.
-
-The Auspice display name is derived as `DENV1/USA/FL-BPHL-26-0042/2026`, matching
-the pattern the public GenBank records use, so local and public tips read the
-same way in the tree.
+The Auspice display name is derived for you as
+`DENV2/USA/TVU26000019/2026`, matching the pattern the public GenBank records
+use, so local and public tips read the same way in the tree. Supply a `strain`
+column to override it.
 
 ## Running it
 
@@ -113,7 +160,7 @@ The run stops, and nothing is written, on any of these:
 - an unparseable, future, or pre-1950 collection date
 - `country` or `region` resolving to empty or `?`, which `augur filter` silently
   drops later
-- a sample in the metadata with no FASTA record, or the reverse
+- a sample in the metadata with no FASTA record
 - a duplicate FASTA header
 - a character outside the IUPAC nucleotide alphabet
 
@@ -122,24 +169,25 @@ worth reading are short-sequence and high-ambiguity warnings, because those
 samples enter the genome tree only because `include.txt` forces them past
 `augur filter --min-length 5000`.
 
-## Reusing the Nextclade datasets from ingest
+## On the lineage call
 
-By default this workflow downloads the v-gen-lab datasets itself, which keeps it
-runnable on its own without waiting for a multi-hour ingest. The cost is that
-local and public sequences are lineage-called from two separate downloads, and if
-those straddle a dataset release the calls are not strictly comparable. Nothing
-in the pipeline warns you when that happens.
+The `nextclade_clade` column comes straight from `Daytona_dengue`, which already
+ran the `community/v-gen-lab/dengue` datasets when the sample was sequenced. This
+workflow does not recompute it. It only splits the value into the three levels
+Auspice colors by, using the same regex `ingest` uses:
 
-Once the pipeline is routine, point this workflow at the datasets `ingest`
-already fetched. Both halves then share one dataset file, and this workflow stops
-needing the network at all. In `defaults/config.yaml`:
-
-```yaml
-nextclade:
-  dataset_zip: "../ingest/data/nextclade_data/v-gen-lab/{serotype}.zip"
+```
+2II_F.1.1.2  ->  genotype 2II,  major_lineage 2II_F,  minor_lineage 2II_F.1.1.2
 ```
 
-Those zips are not marked `temp()`, so they survive after `ingest` finishes.
+The assumption is that Daytona and `ingest` called their lineages against the
+same v-gen-lab dataset version. If v-gen-lab publishes a revision between your
+sequencing run and your last `ingest`, your samples and the GenBank samples are
+labelled by two different rulebooks and nothing here will warn you. Re-running
+`ingest` around the same time you build keeps them aligned.
+
+A sample whose `nextclade_clade` is `unclassified` or empty keeps its place in
+the tree but shows blank under the lineage colorings, and the validator says so.
 
 ## A note on disclosure
 

@@ -1,6 +1,6 @@
 """
-This part of the workflow validates the hand-filled metadata against the
-consensus FASTA and prepares per-serotype sequence files for Nextclade.
+This part of the workflow validates the metadata against the consensus FASTA and
+normalises the sequence headers.
 
 REQUIRED INPUTS:
 
@@ -11,7 +11,6 @@ OUTPUTS:
 
     metadata  = data/metadata_validated.tsv
     sequences = data/sequences_all.fasta
-                data/sequences_{denv1..denv4}.fasta
     report    = results/validation_report.txt
 """
 
@@ -78,29 +77,3 @@ rule normalize_local_fasta:
             --output {output.sequences:q}
         """
 
-
-rule split_sequences_for_nextclade:
-    """
-    Each serotype is genotyped against its own v-gen-lab dataset, so sequences
-    are split before Nextclade runs.
-    """
-    input:
-        sequences="data/sequences_all.fasta",
-        metadata="data/metadata_validated.tsv",
-    output:
-        sequences=expand("data/sequences_{serotype}.fasta", serotype=NEXTCLADE_SEROTYPES),
-    log:
-        "logs/split_sequences_for_nextclade.txt",
-    shell:
-        r"""
-        exec &> >(tee {log:q})
-
-        python3 scripts/split-by-serotype.py \
-            --metadata {input.metadata:q} \
-            --sequences {input.sequences:q} \
-            --id-column accession \
-            --serotype-column serotype_genbank \
-            --serotypes denv1 denv2 denv3 denv4 \
-            --output-dir data \
-            --sequences-only
-        """

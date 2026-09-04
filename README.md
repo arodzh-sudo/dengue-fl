@@ -16,9 +16,9 @@ Run them in this order.
 1. [`ingest/`](./ingest) downloads dengue sequences from NCBI GenBank, curates
    them, and assigns dengue lineages with the `community/v-gen-lab/dengue`
    Nextclade datasets. Re-run it when you want fresher public context.
-2. [`local/`](./local) validates your hand-filled metadata, assigns lineages to
-   your consensus genomes with the same Nextclade datasets, and writes
-   per-serotype files. Re-run it whenever you have new samples.
+2. [`local/`](./local) validates your metadata, derives the lineage levels from
+   the Nextclade call Daytona already made, and writes per-serotype files. Re-run
+   it whenever you have new samples.
 3. [`phylogenetic/`](./phylogenetic) merges the two and builds the trees.
 
 [`nextclade/`](./nextclade) builds the Nextstrain genotype datasets and is
@@ -53,7 +53,9 @@ with `nextstrain check-setup`, then, from the repo root:
 
 ```sh
 cat /path/to/daytona_output/assemblies_qc_pass/*.fasta > local/input/sequences.fasta
-cp local/defaults/metadata_template.tsv local/input/metadata.tsv   # then fill it in
+python3 local/scripts/summary-report-to-metadata.py \
+    --summary-report /path/to/daytona_output/summary_report.txt \
+    --output local/input/metadata.tsv     # then add collection_date to each row
 
 nextstrain build ingest
 nextstrain build local
@@ -76,7 +78,7 @@ fails because the administrators disabled overlay support, which
 Get an allocation, then work inside it:
 
 ```sh
-srun --account=bphl-florida --qos=bphl-florida \
+srun --account=bphl-umbrella --qos=bphl-umbrella \
      --cpus-per-task=8 --mem=32gb --time=08:00:00 --pty bash -i
 
 conda activate nextstrain          # provides the `nextstrain` command

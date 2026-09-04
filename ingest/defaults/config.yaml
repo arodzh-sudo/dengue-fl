@@ -123,6 +123,8 @@ curate:
     "serotype_genbank", # inferred from virus_tax_id
     "url",
     "data_source",
+    "country_exposure",
+    "region_exposure",
   ]
 
 nextclade:

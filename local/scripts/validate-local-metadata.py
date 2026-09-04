@@ -7,6 +7,7 @@ a metadata table with the same columns ingest produces.
 import argparse
 import csv
 import json
+import os
 import re
 import sys
 from datetime import date, datetime
@@ -55,6 +56,46 @@ def read_sequences(path):
     return records, duplicates
 
 
+def read_public_accessions(path):
+    """Accessions already in the public data, if ingest has been run."""
+    if not path or not os.path.exists(path):
+        return set()
+    with open(path, newline="", encoding="utf-8") as handle:
+        return {row["accession"] for row in csv.DictReader(handle, delimiter="\t")}
+
+
+def read_host_map(path):
+    """host -> (host_genus, host_type), from the same TSV ingest curates with."""
+    if not path or not os.path.exists(path):
+        return {}
+    with open(path, newline="", encoding="utf-8") as handle:
+        return {
+            row["host"]: (row["host_genus"], row["host_type"])
+            for row in csv.DictReader(handle, delimiter="\t")
+        }
+
+
+def read_region_map(path):
+    """
+    country -> region, read from the Auspice colour ordering file, where each
+    "# Region" comment heads the countries belonging to it. Using that file
+    rather than a second table keeps exposure regions on the same scale the
+    colourings already use.
+    """
+    if not path or not os.path.exists(path):
+        return {}
+    mapping = {}
+    region = None
+    with open(path, encoding="utf-8") as handle:
+        for line in handle:
+            line = line.rstrip("\n")
+            if line.startswith("#"):
+                region = line.lstrip("# ").strip()
+            elif line.startswith("country\t") and region:
+                mapping[line.split("\t", 1)[1].strip()] = region
+    return mapping
+
+
 def normalise_serotype(value):
     match = re.search(r"([1-4])", value or "")
     if not match:
@@ -88,6 +129,7 @@ def main():
 
     errors = []
     warnings = []
+    excluded = []
 
     columns, rows = read_metadata(args.metadata)
     sequences, duplicate_headers = read_sequences(args.sequences)
@@ -107,6 +149,8 @@ def main():
         report_and_exit(args, errors, warnings, [])
 
     id_pattern = re.compile(rules["id_regex"])
+    host_map = read_host_map(rules.get("host_map"))
+    region_map = read_region_map(rules.get("region_map"))
     allowed = set(rules["allowed_serotypes"])
     today = date.today()
 
@@ -155,7 +199,40 @@ def main():
             if record.get(field, "") in ("", "?"):
                 errors.append(f"{sample_id}: {field} resolved to {record.get(field, '')!r}")
 
+        # Mirrors ingest's transform-new-fields --pass-through true: an unmapped
+        # host becomes its own genus and type rather than being dropped.
         host = record.get("host", "")
+        host_genus, host_type = host_map.get(host, (host, host))
+        if host not in host_map:
+            warnings.append(
+                f"{sample_id}: host {host!r} is not in the host map, so host_genus "
+                "and host_type fall back to the host name"
+            )
+
+        # Daytona already called this against the v-gen-lab datasets, in the same
+        # format ingest writes, so it is carried through rather than recomputed.
+        clade = row.get("nextclade_clade", "")
+        if not clade or not re.match(r"^[0-9][A-Z]", clade):
+            warnings.append(
+                f"{sample_id}: nextclade_clade {clade or 'empty'!r} is not a dengue "
+                "lineage, so the lineage colorings will be blank for this sample"
+            )
+            clade = ""
+
+        # augur traits reconstructs ancestral geography from the exposure
+        # columns, so an imported case has to point at where infection happened
+        # rather than where it was reported, or Florida reads as a source.
+        travel_country = record.get("travel_country", "")
+        country_exposure = travel_country or record.get("country", "")
+        region_exposure = record.get("region", "")
+        if travel_country:
+            region_exposure = region_map.get(travel_country, region_exposure)
+            if travel_country not in region_map:
+                warnings.append(
+                    f"{sample_id}: travel_country {travel_country!r} is not in the colour "
+                    f"ordering file, so region_exposure stays {region_exposure!r}"
+                )
+
         record.update(
             {
                 "accession": sample_id,
@@ -163,11 +240,16 @@ def main():
                 "date": raw_date,
                 "serotype_genbank": serotype,
                 "host": host,
+                "host_genus": host_genus,
+                "host_type": host_type,
+                "genotype_nextclade": clade,
+                "country_exposure": country_exposure,
+                "region_exposure": region_exposure,
                 "date_released": today.isoformat(),
                 "date_updated": today.isoformat(),
             }
         )
-        for consumed in ("sample_id", "collection_date", "serotype"):
+        for consumed in ("sample_id", "collection_date", "serotype", "nextclade_clade"):
             record.pop(consumed, None)
 
         if not record.get("strain"):
@@ -187,12 +269,22 @@ def main():
         records.append(record)
 
     metadata_ids = {record["accession"] for record in records}
-    missing_sequence = sorted(metadata_ids - set(sequences))
-    missing_metadata = sorted(set(sequences) - metadata_ids)
-    for sample_id in missing_sequence:
+    for sample_id in sorted(metadata_ids - set(sequences)):
         errors.append(f"{sample_id}: present in metadata but has no FASTA record")
-    for seq_id in missing_metadata:
-        errors.append(f"{seq_id}: present in the FASTA but has no metadata row")
+
+    # The FASTA is allowed to be a superset. Concatenating every consensus and
+    # then listing only the QC-passing ones in the metadata is the normal way to
+    # select what enters the trees, so these are recorded rather than warned
+    # about: under strict they must not fail the run.
+    excluded.extend(sorted(set(sequences) - metadata_ids))
+    if excluded:
+        print(f"Excluding {len(excluded)} FASTA records absent from the metadata.", file=sys.stderr)
+
+    for sample_id in sorted(metadata_ids & read_public_accessions(rules.get("public_metadata"))):
+        errors.append(
+            f"{sample_id}: collides with a public GenBank accession; "
+            "augur merge would silently keep only one of the two sequences"
+        )
 
     stats = []
     for record in records:
@@ -224,9 +316,9 @@ def main():
             )
 
     if errors or (strict and warnings):
-        report_and_exit(args, errors, warnings, stats)
+        report_and_exit(args, errors, warnings, stats, excluded)
 
-    write_report(args.output_report, errors, warnings, stats)
+    write_report(args.output_report, errors, warnings, stats, excluded)
 
     fieldnames = sorted({key for record in records for key in record})
     with open(args.output_metadata, "w", newline="", encoding="utf-8") as handle:
@@ -238,7 +330,7 @@ def main():
     print(f"Validated {len(records)} local samples.", file=sys.stderr)
 
 
-def write_report(path, errors, warnings, stats):
+def write_report(path, errors, warnings, stats, excluded=()):
     lines = ["# Local metadata validation report", ""]
 
     by_serotype = {}
@@ -260,13 +352,16 @@ def write_report(path, errors, warnings, stats):
     lines.append(f"Warnings: {len(warnings)}")
     lines.extend(f"  WARNING {message}" for message in warnings)
     lines.append("")
+    lines.append(f"Excluded, present in the FASTA but not the metadata: {len(excluded)}")
+    lines.extend(f"  {seq_id}" for seq_id in excluded)
+    lines.append("")
 
     with open(path, "w", encoding="utf-8") as handle:
         handle.write("\n".join(lines))
 
 
-def report_and_exit(args, errors, warnings, stats):
-    write_report(args.output_report, errors, warnings, stats)
+def report_and_exit(args, errors, warnings, stats, excluded=()):
+    write_report(args.output_report, errors, warnings, stats, excluded)
     for message in errors:
         print(f"ERROR {message}", file=sys.stderr)
     for message in warnings:

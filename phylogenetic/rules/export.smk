@@ -42,14 +42,24 @@ rule colors:
             --color-schemes {input.color_schemes} \
             --ordering {input.color_orderings} \
             --metadata {input.metadata} \
-            --output {output.colors}
+            --output {output.colors}.ramp
 
         # A 200-colour ramp is a smooth interpolation, so neighbouring countries
         # are indistinguishable. Mute them all, then let the manual file give
-        # strong colours to the few that matter for this build. augur reads the
-        # colours top to bottom into a dict, so the last row for a value wins.
+        # strong colours to the few that matter for this build.
+        #
+        # augur passes every row of the colours file through to the exported
+        # scale without deduplicating, and Auspice then uses the first entry it
+        # finds for a value. So the sections are concatenated in priority order,
+        # manual pins first and the generated ramp last, and the whole thing is
+        # deduplicated on trait and value keeping the first row. That leaves one
+        # colour per value and relies on no undocumented precedence.
+        #
         # The mute list comes from the metadata rather than a fixed list so that
         # no value, however it is spelled, falls through to Auspice's own scale.
+        (
+        cat {input.manual_colors}
+
         for column in {params.muted_columns}; do
             awk -F'\t' -v col="$column" -v grey='{params.muted_color}' -v OFS='\t' '
                 NR == 1 {{ for (i = 1; i <= NF; i++) if ($i == col) c = i; next }}
@@ -63,10 +73,13 @@ rule colors:
                     if (value != "" && value != "?") seen[value] = 1
                 }}
                 END {{ for (value in seen) print col, value, grey }}
-            ' {input.metadata} >> {output.colors}
+            ' {input.metadata}
         done
 
-        cat {input.manual_colors} >> {output.colors}
+        cat {output.colors}.ramp
+        ) | awk -F'\t' '$0 == "" || !seen[$1, $2]++' > {output.colors}
+
+        rm {output.colors}.ramp
         """
 
 

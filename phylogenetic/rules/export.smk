@@ -92,6 +92,15 @@ rule prepare_auspice_config:
     params:
         replace_clade_key=lambda wildcard: r"clade_membership" if wildcard.gene in ['genome'] else r"major_lineage",
         replace_clade_title=lambda wildcard: r"Serotype" if wildcard.serotype in ['all'] else r"Genotype (Nextclade)",
+        # Auspice draws transmission lines by comparing a node's geographic value
+        # with its parent's, so a geo resolution is only usable if augur traits
+        # reconstructed it onto internal nodes. These must stay in step with
+        # config.traits.traits_columns or the map silently draws nothing.
+        geo_resolutions=lambda wildcard: (
+            ["region", "region_exposure"]
+            if wildcard.serotype == "all"
+            else ["country", "region", "country_exposure", "region_exposure"]
+        ),
     run:
         export_config = config.get("export", {})
         data = {
@@ -193,10 +202,7 @@ rule prepare_auspice_config:
                 "type": "categorical"
               }
             ],
-            "geo_resolutions": [
-              "country",
-              "region"
-            ],
+            "geo_resolutions": params.geo_resolutions,
             "display_defaults": {
               "map_triplicate": True,
               "color_by": params.replace_clade_key,

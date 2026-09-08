@@ -53,7 +53,15 @@ rule colors:
         for column in {params.muted_columns}; do
             awk -F'\t' -v col="$column" -v grey='{params.muted_color}' -v OFS='\t' '
                 NR == 1 {{ for (i = 1; i <= NF; i++) if ($i == col) c = i; next }}
-                c && $c != "" && $c != "?" {{ seen[$c] = 1 }}
+                c {{
+                    value = $c
+                    # augur merge quotes any field that is not a bare single word,
+                    # so the raw column holds "Sri Lanka" rather than Sri Lanka.
+                    # augur reads its own quoting back off, so the colours have to
+                    # be keyed on the unquoted value or they never match.
+                    gsub(/^"|"$/, "", value)
+                    if (value != "" && value != "?") seen[value] = 1
+                }}
                 END {{ for (value in seen) print col, value, grey }}
             ' {input.metadata} >> {output.colors}
         done

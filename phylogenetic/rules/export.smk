@@ -31,6 +31,11 @@ rule colors:
         colors = "results/{serotype}/colors.tsv"
     benchmark:
         "benchmarks/{serotype}/colors.txt"
+    params:
+        # Columns with too many values to tell apart by colour. Every observed
+        # value is muted, then defaults/colors.tsv pins the handful that matter.
+        muted_columns = ["country", "country_exposure", "location"],
+        muted_color = "#dcdcdc",
     shell:
         """
         python3 scripts/assign-colors.py \
@@ -38,6 +43,21 @@ rule colors:
             --ordering {input.color_orderings} \
             --metadata {input.metadata} \
             --output {output.colors}
+
+        # A 200-colour ramp is a smooth interpolation, so neighbouring countries
+        # are indistinguishable. Mute them all, then let the manual file give
+        # strong colours to the few that matter for this build. augur reads the
+        # colours top to bottom into a dict, so the last row for a value wins.
+        # The mute list comes from the metadata rather than a fixed list so that
+        # no value, however it is spelled, falls through to Auspice's own scale.
+        for column in {params.muted_columns}; do
+            awk -F'\t' -v col="$column" -v grey='{params.muted_color}' -v OFS='\t' '
+                NR == 1 {{ for (i = 1; i <= NF; i++) if ($i == col) c = i; next }}
+                c && $c != "" && $c != "?" {{ seen[$c] = 1 }}
+                END {{ for (value in seen) print col, value, grey }}
+            ' {input.metadata} >> {output.colors}
+        done
+
         cat {input.manual_colors} >> {output.colors}
         """
 
@@ -132,13 +152,13 @@ rule prepare_auspice_config:
                 "type": "categorical"
               },
               {
-                "key": "case_origin",
-                "title": "Case origin",
+                "key": "location",
+                "title": "County",
                 "type": "categorical"
               },
               {
-                "key": "travel_country",
-                "title": "Travel country",
+                "key": "case_origin",
+                "title": "Case origin",
                 "type": "categorical"
               },
               {
@@ -163,6 +183,8 @@ rule prepare_auspice_config:
             },
             "filters": [
               "data_source",
+              "case_origin",
+              "location",
               "division",
               "country",
               "region",

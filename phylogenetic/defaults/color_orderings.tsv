@@ -25,6 +25,7 @@ country	Kyrgyzstan
 country	India
 country	Sri Lanka
 country	Nepal
+country	Bhutan
 country	Asia
 country	Bangladesh
 country	Myanmar
@@ -48,12 +49,14 @@ country	Japan
 # Oceania
 country	French Polynesia
 country	Palau
+country	Guam
 country	Australia
 country	Papua New Guinea
 country	Oceania
 country	Micronesia
 country	Solomon Islands
 country	Vanuatu
+country	New Caledonia
 country	Marshall Islands
 country	New Zealand
 country	Kiribati
@@ -108,12 +111,15 @@ country	Mozambique
 country	Tanzania
 country	Kenya
 country	Ethiopia
+country	Eritrea
 country	Djibouti
 country	Union of the Comoros
+country	Mayotte
 country	Madagascar
 country	Somalia
 country	Seychelles
 country	Mauritius
+country	Réunion
 
 # Europe
 country	Iceland
@@ -177,6 +183,7 @@ country	Ecuador
 country	Colombia
 country	Suriname
 country	Guyana
+country	French Guiana
 country	Venezuela
 country	Trinidad and Tobago
 country	Bonaire
@@ -196,6 +203,8 @@ country	Honduras
 country	Dominica
 country	Guatemala
 country	Guadeloupe
+country	Martinique
+country	Puerto Rico
 country	Belize
 country	Antigua and Barbuda
 country	Saint Kitts and Nevis
@@ -222,6 +231,15 @@ region	Africa
 region	Europe
 region	South America
 region	North America
+
+# region_exposure is where infection likely occurred; it shares the region scale
+# so a place reads the same whether it is a collection or an exposure region.
+region_exposure	Asia
+region_exposure	Oceania
+region_exposure	Africa
+region_exposure	Europe
+region_exposure	South America
+region_exposure	North America
 
 ################
 

@@ -32,10 +32,11 @@ rule colors:
     benchmark:
         "benchmarks/{serotype}/colors.txt"
     params:
-        # Columns with too many values to tell apart by colour. Every observed
-        # value is muted, then defaults/colors.tsv pins the handful that matter.
-        muted_columns = ["country", "country_exposure", "location"],
-        muted_color = "#dcdcdc",
+        # Countries are grouped by region so each region gets its own full ramp
+        # rather than a sliver of one shared interpolation. location has no
+        # grouping to use, so it takes a single ramp.
+        grouped_columns = ["country", "country_exposure"],
+        flat_columns = ["location"],
     shell:
         """
         python3 scripts/assign-colors.py \
@@ -44,37 +45,21 @@ rule colors:
             --metadata {input.metadata} \
             --output {output.colors}.ramp
 
-        # A 200-colour ramp is a smooth interpolation, so neighbouring countries
-        # are indistinguishable. Mute them all, then let the manual file give
-        # strong colours to the few that matter for this build.
-        #
         # augur passes every row of the colours file through to the exported
         # scale without deduplicating, and Auspice then uses the first entry it
         # finds for a value. So the sections are concatenated in priority order,
-        # manual pins first and the generated ramp last, and the whole thing is
-        # deduplicated on trait and value keeping the first row. That leaves one
-        # colour per value and relies on no undocumented precedence.
-        #
-        # The mute list comes from the metadata rather than a fixed list so that
-        # no value, however it is spelled, falls through to Auspice's own scale.
+        # manual pins first and the single shared ramp last, and the whole thing
+        # is deduplicated on trait and value keeping the first row. That leaves
+        # one colour per value and relies on no undocumented precedence.
         (
         cat {input.manual_colors}
 
-        for column in {params.muted_columns}; do
-            awk -F'\t' -v col="$column" -v grey='{params.muted_color}' -v OFS='\t' '
-                NR == 1 {{ for (i = 1; i <= NF; i++) if ($i == col) c = i; next }}
-                c {{
-                    value = $c
-                    # augur merge quotes any field that is not a bare single word,
-                    # so the raw column holds "Sri Lanka" rather than Sri Lanka.
-                    # augur reads its own quoting back off, so the colours have to
-                    # be keyed on the unquoted value or they never match.
-                    gsub(/^"|"$/, "", value)
-                    if (value != "" && value != "?") seen[value] = 1
-                }}
-                END {{ for (value in seen) print col, value, grey }}
-            ' {input.metadata}
-        done
+        python3 scripts/assign-grouped-colors.py \
+            --metadata {input.metadata} \
+            --ordering {input.color_orderings} \
+            --color-schemes {input.color_schemes} \
+            --grouped-columns {params.grouped_columns} \
+            --flat-columns {params.flat_columns}
 
         cat {output.colors}.ramp
         ) | awk -F'\t' '$0 == "" || !seen[$1, $2]++' > {output.colors}

@@ -240,6 +240,28 @@ rule prepare_auspice_config:
             json.dump(data, fh, indent=2)
 
 
+rule lat_longs:
+    """
+    augur keys coordinates by trait name as well as value, so country_exposure
+    and region_exposure match nothing in its built-in table and augur export
+    drops those geo resolutions entirely. This repeats the country and region
+    rows under the exposure names. Every original row is kept, so it works
+    whether --lat-longs supplements the built-in table or replaces it.
+    """
+    output:
+        lat_longs = "results/defaults/lat_longs.tsv",
+    shell:
+        r"""
+        augur_lat_longs=$(python3 -c "import augur, pathlib; print(pathlib.Path(augur.__file__).parent / 'data' / 'lat_longs.tsv')")
+
+        awk -F'\t' -v OFS='\t' '
+            {{ print }}
+            $1 == "country" {{ print "country_exposure", $2, $3, $4 }}
+            $1 == "region"  {{ print "region_exposure",  $2, $3, $4 }}
+        ' "$augur_lat_longs" > {output.lat_longs}
+        """
+
+
 rule export:
     """Exporting data files for auspice"""
     input:
@@ -253,6 +275,7 @@ rule export:
         description = config["export"]["description"],
         auspice_config = "results/defaults/{serotype}/{gene}/auspice_config.json",
         colors = "results/{serotype}/colors.tsv",
+        lat_longs = "results/defaults/lat_longs.tsv",
     output:
         auspice_json = "auspice/dengue_{serotype}_{gene}.json"
     benchmark:
@@ -267,6 +290,7 @@ rule export:
             --metadata-id-columns {params.strain_id} \
             --node-data {input.branch_lengths} {input.traits} {input.clades} {input.nt_muts} {input.aa_muts} \
             --colors {input.colors} \
+            --lat-longs {input.lat_longs} \
             --description {input.description} \
             --auspice-config {input.auspice_config} \
             --include-root-sequence-inline \

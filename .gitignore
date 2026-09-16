@@ -12,7 +12,15 @@ environment*
 # local/data/ and local/results/ are already covered by the rules above.
 local/input/*
 !local/input/.gitkeep
-/analysis/
+
+# Analysis working directories hold patient level tables, builds and drafts.
+# Only the report scripts are tracked.
+/analysis/*
+!/analysis/florida_2026_surge/
+/analysis/florida_2026_surge/*
+!/analysis/florida_2026_surge/scripts/
+# First pass count check, written against the older data layout.
+/analysis/florida_2026_surge/scripts/reconcile_counts.py
 
 # Snakemake state dir
 .snakemake/

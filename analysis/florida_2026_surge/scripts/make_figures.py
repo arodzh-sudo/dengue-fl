@@ -11,9 +11,6 @@ from analyze_v2 import (SEROTYPES, attr, build_dir_argument, decimal_to_date, di
                         load, mrca, results, sequences, walk)
 
 
-def figures():
-    return os.path.join(analyze_v2.BASE, "report", "figures")
-
 SURFACE = "#ffffff"
 INK = "#0b0b0b"
 INK_SOFT = "#52514e"
@@ -33,9 +30,36 @@ BLUES = ["#cde2fb", "#b7d3f6", "#9ec5f4", "#86b6ef", "#6da7ec", "#5598e7", "#398
 FONT = "Inter, 'Helvetica Neue', Arial, sans-serif"
 MONO = "'SF Mono', Menlo, Consolas, monospace"
 
-COUNTY_COLOR = {"Hillsborough": HILLSBOROUGH, "Pinellas": PINELLAS, "Dade": DADE}
 ORIGIN_COLOR = {"local": LOCAL, "travel-associated": IMPORTED, "unknown": UNDETERMINED,
-                 "(missing)": UNDETERMINED, "blank": UNDETERMINED}
+                "(missing)": UNDETERMINED, "blank": UNDETERMINED}
+COUNTY_HUES = [HILLSBOROUGH, PINELLAS, DADE, "#eda100", "#4a3aa7", "#e87ba4"]
+_COUNTY_COLOR = {}
+
+
+def county_color(name):
+    """The counties in this build take the fixed hues in turn, commonest first."""
+    if not _COUNTY_COLOR:
+        counted = Counter(row["county"] for row in read("tips.tsv") if row["county"])
+        for index, (county, _) in enumerate(counted.most_common()):
+            _COUNTY_COLOR[county] = COUNTY_HUES[index] if index < len(COUNTY_HUES) else OTHER_COUNTY
+    return _COUNTY_COLOR.get(name, OTHER_COUNTY)
+
+
+def county_legend():
+    county_color("")
+    return [(("Miami-Dade" if county == "Dade" else county), color)
+            for county, color in _COUNTY_COLOR.items() if color != OTHER_COUNTY]
+
+
+def landmark(role, label=None):
+    for row in read("landmarks.tsv"):
+        if row["role"] == role and (label is None or row["label"] == label):
+            return row
+    raise SystemExit("results/landmarks.tsv has no {} {}".format(role, label or ""))
+
+
+def figures():
+    return os.path.join(analyze_v2.BASE, "report", "figures")
 
 
 class Svg:
@@ -242,7 +266,7 @@ def figure_two():
     def color_of(node):
         if attr(node, "data_source") != "Florida BPHL":
             return PUBLIC
-        return COUNTY_COLOR.get(attr(node, "location"), OTHER_COUNTY)
+        return county_color(attr(node, "location"))
 
     for point, when in month_ticks(low, high):
         if when.month == 1:
@@ -268,16 +292,17 @@ def figure_two():
             svg.circle(x, y, 3.4, SURFACE, stroke=color, stroke_width=1.6)
         svg.text(x + 7, y + 3.2, name, size=7.4, fill=INK, family=MONO)
 
-    cluster = [n["name"] for n in walk(index["NODE_0003278"]) if is_tip(n)]
+    cluster = landmark("featured_cluster")["members"].split()
     top_y = min(to_y(y_of[n]) for n in cluster) - 5
     bottom_y = max(to_y(y_of[n]) for n in cluster) + 5
     svg.line(866, top_y, 866, bottom_y, stroke=HILLSBOROUGH, width=2)
-    svg.text(874, (top_y + bottom_y) / 2 - 4, "Hillsborough and", size=10, fill=HILLSBOROUGH, weight=600)
-    svg.text(874, (top_y + bottom_y) / 2 + 9, "Pinellas group", size=10, fill=HILLSBOROUGH, weight=600)
+    counties = sorted({attr(index[n], "location") for n in cluster})
+    svg.text(874, (top_y + bottom_y) / 2 - 4, " and ".join(counties[:2]), size=10,
+             fill=HILLSBOROUGH, weight=600)
+    svg.text(874, (top_y + bottom_y) / 2 + 9, "cluster", size=10, fill=HILLSBOROUGH, weight=600)
 
-    legend(svg, 0, bottom + 40, [("Hillsborough", HILLSBOROUGH), ("Pinellas", PINELLAS),
-                                 ("Miami-Dade", DADE), ("Other county", OTHER_COUNTY),
-                                 ("GenBank", PUBLIC)], gap=120)
+    legend(svg, 0, bottom + 40,
+           county_legend() + [("Other county", OTHER_COUNTY), ("GenBank", PUBLIC)], gap=120)
     svg.text(0, bottom + 62,
              "Filled circle: acquired in Florida.  Open circle: travel-associated.  "
              "Diamond: mosquito pool.", size=10, fill=INK_MUTED)
@@ -330,7 +355,7 @@ def tree_figure(root, filename, collapse=(), band=None, collapse_label="",
     def color_of(node):
         if attr(node, "data_source") != "Florida BPHL":
             return PUBLIC
-        return COUNTY_COLOR.get(attr(node, "location"), OTHER_COUNTY)
+        return county_color(attr(node, "location"))
 
     draw_branches(svg, root, y_of, to_x, to_y, color_of, lambda n: 2.2, collapse)
 
@@ -383,8 +408,7 @@ def tree_figure(root, filename, collapse=(), band=None, collapse_label="",
         svg.text(760, y + 4, note, size=9 * scale, fill=INK_MUTED)
 
     used = {color_of(index[n]) for n in order if n not in collapse}
-    entries = [("Hillsborough", HILLSBOROUGH), ("Pinellas", PINELLAS), ("Miami-Dade", DADE),
-               ("Other county", OTHER_COUNTY), ("GenBank", PUBLIC)]
+    entries = county_legend() + [("Other county", OTHER_COUNTY), ("GenBank", PUBLIC)]
     entries = [e for e in entries if e[1] in used]
     if collapse:
         entries.append((collapse_label, WEDGE))
@@ -397,20 +421,15 @@ def tree_figure(root, filename, collapse=(), band=None, collapse_label="",
     svg.save(filename)
 
 
-def denv2_tree(filename, root_marker=None, root_name=None, levels_up=0, collapse_marker=None,
-               band_name=None, collapse_label="", row=26, scale=1.0):
-    data = load("denv2")
-    parents = {}
-    nodes = list(walk(data["tree"], None, parents))
-    index = {n["name"]: n for n in nodes}
-    root = index[root_name] if root_name else marked_by(data["tree"], *root_marker)
-    for _ in range(levels_up):
-        root = parents[root["name"]]
-    collapse = set()
-    if collapse_marker:
-        collapse.add(marked_by(root, *collapse_marker)["name"])
-    tree_figure(root, filename, collapse, index[band_name] if band_name else None,
-                collapse_label, row, scale=scale)
+def featured_tree(filename, serotype, root_name, collapse_name=None, band_name=None,
+                  collapse_label="", row=26, scale=1.0):
+    data = load(serotype)
+    index = {n["name"]: n for n in walk(data["tree"])}
+    for name in (root_name, collapse_name, band_name):
+        if name and name not in index:
+            raise SystemExit("{} is not a node of this build, rerun analyze_v2.py".format(name))
+    tree_figure(index[root_name], filename, {collapse_name} if collapse_name else set(),
+                index[band_name] if band_name else None, collapse_label, row, scale=scale)
 
 
 def prune(node, keep, carried=None):
@@ -464,9 +483,8 @@ def serotype_tree(serotype, filename, row=26, scale=1.0):
 
 # ---------------------------------------------------------------- figure 4
 def figure_four():
-    rows = read("denv2_distances.tsv")
-    cluster = [r["sample"] for r in read("denv2_cluster.tsv")]
-    order = cluster + ["TVU26000552", "TVU26000553", "TVU26000530"]
+    rows = read("distances.tsv")
+    order = landmark("matrix")["members"].split()
     tips = read("tips.tsv")
     ambiguity = {r["sample"]: float(r["ambiguous_fraction"] or 0) for r in tips}
     county_of = {r["sample"]: r["county"] for r in tips}
@@ -487,7 +505,7 @@ def figure_four():
                     x + cell / 2, top - 8, MONO, INK_SOFT, x + cell / 2, top - 8, name))
     for row_index, name in enumerate(order):
         y = top + row_index * cell
-        color = COUNTY_COLOR.get(county_of.get(name, ""), OTHER_COUNTY)
+        color = county_color(county_of.get(name, ""))
         svg.circle(left - 12, y + cell / 2, 4, color)
         svg.text(left - 20, y + cell / 2 + 3.5, name, size=9, family=MONO, fill=INK, anchor="end")
         for column, other in enumerate(order):
@@ -510,9 +528,9 @@ def figure_four():
         svg.rect(right, y + cell / 2 - 5, max(share * 600, 1), 10, "#eb6834", rx=2)
         svg.text(right + max(share * 600, 1) + 6, y + cell / 2 + 3.5,
                  "{:.1f}%".format(share * 100), size=8.5, fill=INK_MUTED, family=MONO)
-    counties = [("Hillsborough", HILLSBOROUGH), ("Pinellas", PINELLAS), ("Miami-Dade", DADE)]
-    used = {COUNTY_COLOR.get(county_of.get(name, ""), OTHER_COUNTY) for name in order}
-    legend(svg, 0, top + size * cell + 34, [c for c in counties if c[1] in used], gap=120)
+    used = {county_color(county_of.get(name, "")) for name in order}
+    legend(svg, 0, top + size * cell + 34,
+           [c for c in county_legend() if c[1] in used], gap=120)
     svg.text(0, top + size * cell + 58,
              "The dot beside each name gives the county. Darker cells are more similar. The bars "
              "on the right are the share of each assembly that was unresolved before the tree "
@@ -522,7 +540,7 @@ def figure_four():
 
 # ---------------------------------------------------------------- figure 5
 def figure_five():
-    rows = read("lineage_2II_F_1_1_2.tsv")
+    rows = read("lineage_context.tsv")
     years = sorted({int(r["year"]) for r in rows})
     countries = [c for c, _ in Counter({r["country"]: 0 for r in rows}).items()]
     totals = Counter()
@@ -605,7 +623,7 @@ def figure_six():
             len(rows), ", ".join(sorted(Counter(r["lineage"] for r in rows)))),
             size=9, fill=INK_MUTED)
         for record, x, level in placements.get(serotype, []):
-            color = COUNTY_COLOR.get(record["county"], OTHER_COUNTY)
+            color = county_color(record["county"])
             cy = y + level * 10
             if record["host_type"] == "Mosquito":
                 svg.diamond(x, cy, 4.5, color, stroke=SURFACE, stroke_width=1)
@@ -614,8 +632,7 @@ def figure_six():
             else:
                 svg.circle(x, cy, 3.8, SURFACE, stroke=color, stroke_width=1.5)
 
-    legend(svg, 0, cursor - 6, [("Hillsborough", HILLSBOROUGH), ("Pinellas", PINELLAS),
-                                ("Miami-Dade", DADE), ("Other county", OTHER_COUNTY)], gap=120)
+    legend(svg, 0, cursor - 6, county_legend() + [("Other county", OTHER_COUNTY)], gap=120)
     svg.text(0, cursor + 18,
              "Filled: acquired in Florida.  Open: travel-associated.  Diamond: mosquito pool.",
              size=10, fill=INK_MUTED)
@@ -633,14 +650,6 @@ def exposure_color(node):
     if attr(node, "case_origin") is None and attr(node, "country_exposure") == "USA":
         return ELSEWHERE
     return {"Cuba": CUBA, "USA": FLORIDA}.get(attr(node, "country_exposure"), ELSEWHERE)
-
-
-def marked_by(tree, gene, change):
-    """The clade whose own branch carries this amino acid change."""
-    for node in walk(tree):
-        if change in node.get("branch_attrs", {}).get("mutations", {}).get(gene, []):
-            return node
-    raise SystemExit("no branch carries {} {}".format(gene, change))
 
 
 def tip_mark(svg, node, x, y, color, size=3.6):
@@ -664,9 +673,10 @@ def exposure_legend(svg, x, y, used=None):
 
 # ---------------------------------------------------------------- figure 5a
 def figure_five_a():
-    data = load("denv2")
-    roots = [("Sub-lineage carrying the outbreak", marked_by(data["tree"], "E", "S7A")),
-             ("Imported-only sub-lineage", marked_by(data["tree"], "NS2A", "I33L"))]
+    rows = [row for row in read("landmarks.tsv") if row["role"] == "clade"]
+    data = load(rows[0]["serotype"])
+    index = {n["name"]: n for n in walk(data["tree"])}
+    roots = [("Clade that {}".format(row["label"]), index[row["node"]]) for row in rows]
     for _, root in roots:
         ladder(root)
     layouts = [(label, root) + layout(root) for label, root in roots]
@@ -758,12 +768,17 @@ def main():
     figure_five_a()
     figure_five()
     figure_six()
-    denv2_tree("fig3_cluster.svg", root_name="NODE_0003277", band_name="NODE_0003278",
-               row=31, scale=1.18)
-    denv2_tree("fig8_outbreak_clade.svg", root_marker=("E", "S7A"), levels_up=2,
-               collapse_marker=("NS5", "T363I"),
-               collapse_label="Hillsborough and Pinellas cluster")
-    denv2_tree("fig9_traveler_clade.svg", root_marker=("NS2A", "I33L"), levels_up=2)
+    cluster = landmark("featured_cluster")
+    counties = sorted({row["county"] for row in read("cluster.tsv") if row["county"]})
+    label = "{} cluster".format(" and ".join(counties[:2])) if counties else "cluster"
+    featured_tree("fig3_cluster.svg", cluster["serotype"],
+                  landmark("featured_cluster_context")["node"], band_name=cluster["node"],
+                  row=31, scale=1.18)
+    holding = landmark("clade", "carries the cluster")
+    featured_tree("fig8_outbreak_clade.svg", holding["serotype"], holding["context_node"],
+                  collapse_name=cluster["node"], collapse_label=label)
+    travel = landmark("clade", "travel only")
+    featured_tree("fig9_traveler_clade.svg", travel["serotype"], travel["context_node"])
     serotype_tree("denv4", "fig11_denv4_tree.svg")
     serotype_tree("denv3", "fig12_denv3_tree.svg")
     figure_supplementary()

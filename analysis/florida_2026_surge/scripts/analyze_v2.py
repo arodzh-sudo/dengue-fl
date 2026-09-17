@@ -9,9 +9,25 @@ import os
 import re
 from collections import Counter
 
+from report_blocks import read_config
+
 HERE = os.path.dirname(os.path.abspath(__file__))
-BASE = os.path.join(HERE, "..", "2026")
+BUILDS = os.path.join(HERE, "..", "builds")
 SEROTYPES = ["denv1", "denv2", "denv3", "denv4"]
+
+
+def newest_build():
+    """The most recent dated folder under builds/, which is what a bare command means."""
+    if os.path.isdir(BUILDS):
+        dated = sorted(name for name in os.listdir(BUILDS)
+                       if os.path.isdir(os.path.join(BUILDS, name))
+                       and re.fullmatch(r'[0-9]{4}-[0-9]{2}-[0-9]{2}', name))
+        if dated:
+            return os.path.join(BUILDS, dated[-1])
+    return os.path.join(HERE, "..", "2026")
+
+
+BASE = newest_build()
 
 
 def set_base(path):
@@ -32,6 +48,61 @@ def build_dir_argument(description):
 
 def jsons():
     return os.path.join(BASE, "json")
+
+
+def config():
+    """What this build's report features, from report.yaml beside the build."""
+    path = os.path.join(BASE, "report.yaml")
+    settings = read_config(path) if os.path.exists(path) else {}
+    settings.setdefault("featured_cluster", "auto")
+    settings.setdefault("featured_serotype", "denv2")
+    settings.setdefault("matrix_extra", [])
+    settings.setdefault("min_local", "2")
+    settings.setdefault("min_florida", "5")
+    settings.setdefault("max_public", "1")
+    return settings
+
+
+def clade_tips(node):
+    return [n for n in walk(node) if is_tip(n)]
+
+
+def florida_tips(tips):
+    return [t for t in tips if attr(t, "data_source") == "Florida BPHL"]
+
+
+def local_tips(tips):
+    return [t for t in tips if attr(t, "case_origin") == "local" or attr(t, "host_type") == "Mosquito"]
+
+
+def discover(tree, keep):
+    """The outermost clades that satisfy keep, largest first and never nested."""
+    found = []
+
+    def descend(node):
+        if is_tip(node):
+            return
+        tips = clade_tips(node)
+        if keep(tips):
+            found.append((node, tips))
+            return
+        for child in node.get("children", []):
+            descend(child)
+
+    descend(tree)
+    found.sort(key=lambda pair: -len(pair[1]))
+    return found
+
+
+def near_candidates(name, parents, limit=25):
+    """Tips from the smallest clade above this one that holds enough of them to compare."""
+    cursor = parents[name]
+    while cursor is not None:
+        tips = [n["name"] for n in walk(cursor) if is_tip(n) and n["name"] != name]
+        if len(tips) >= limit or parents[cursor["name"]] is None:
+            return tips
+        cursor = parents[cursor["name"]]
+    return []
 
 
 def results():
@@ -228,23 +299,77 @@ def main():
     say("Florida tips written: {}".format(len(rows)))
     say("  missing case origin: " + ", ".join(r["sample"] for r in rows if r["case_origin"] == "(missing)"))
 
-    # 3. the Hillsborough and Pinellas DENV2 clade
-    denv2 = trees["denv2"]
-    parents = parents_by["denv2"]
-    nodes = {n["name"]: n for n in walk(denv2["tree"])}
-    seed = [t["name"] for t in tips_by["denv2"]
-            if attr(t, "data_source") == "Florida BPHL"
-            and attr(t, "location") in ("Hillsborough", "Pinellas")
-            and (attr(t, "case_origin") == "local" or attr(t, "host_type") == "Mosquito")]
+    # 3. clusters of genomes acquired in Florida, found rather than named
+    settings = config()
+    min_local, max_public = int(settings["min_local"]), int(settings["max_public"])
+    min_florida = int(settings["min_florida"])
+    nodes_by = {s: {n["name"]: n for n in walk(trees[s]["tree"])} for s in SEROTYPES}
+
+    def is_cluster(tips):
+        """Every genome in it was acquired in Florida, and there are enough of them to matter."""
+        inside = florida_tips(tips)
+        acquired = local_tips(inside)
+        return len(acquired) >= min_local and len(acquired) == len(inside) == len(tips)
+
+    clusters, cluster_table = {}, []
     say("")
-    say("CLUSTER SEED (local Hillsborough and Pinellas plus the pool): " + ", ".join(sorted(seed)))
-    ancestor = mrca(parents, seed)
-    clade = [n["name"] for n in walk(nodes[ancestor]) if is_tip(n)]
+    say("CLUSTERS OF GENOMES ACQUIRED IN FLORIDA, AT LEAST {} EACH".format(min_local))
+    for serotype in SEROTYPES:
+        clusters[serotype] = discover(trees[serotype]["tree"], is_cluster)
+        for node, tips in clusters[serotype]:
+            members = sorted(t["name"] for t in tips)
+            when = sorted(collected(t["name"], t) for t in tips)
+            interval = node["node_attrs"]["num_date"]["confidence"]
+            cluster_table.append({
+                "serotype": serotype, "node": node["name"], "genomes": len(members),
+                "counties": ",".join(sorted({attr(t, "location") or "" for t in tips})),
+                "first": when[0], "last": when[-1],
+                "ancestor_date": decimal_to_date(attr(node, "num_date")),
+                "ancestor_range": "{} to {}".format(decimal_to_date(interval[0]),
+                                                    decimal_to_date(interval[1])),
+                "members": " ".join(members)})
+            say("  {} {} | {} genomes | {} | {} to {}".format(
+                serotype, node["name"], len(members), cluster_table[-1]["counties"],
+                when[0], when[-1]))
+    if not cluster_table:
+        raise SystemExit("no cluster of at least {} genomes acquired in Florida".format(min_local))
+    write_tsv("clusters.tsv", list(cluster_table[0]), cluster_table)
+
+    wanted = settings["featured_cluster"]
+    options = [(s, node, tips) for s in SEROTYPES for node, tips in clusters[s]]
+    if wanted == "auto":
+        featured_serotype, ancestor_node, cluster_members = max(options, key=lambda o: len(o[2]))
+    else:
+        picked = [o for o in options if any(t["name"] == wanted for t in o[2])]
+        if not picked:
+            raise SystemExit("featured_cluster {} belongs to no cluster in this build".format(wanted))
+        featured_serotype, ancestor_node, cluster_members = picked[0]
+
+    featured = trees[featured_serotype]
+    parents = parents_by[featured_serotype]
+    nodes = nodes_by[featured_serotype]
+    ancestor = ancestor_node["name"]
+    clade = [t["name"] for t in cluster_members]
     confidence = nodes[ancestor]["node_attrs"]["num_date"]["confidence"]
-    say("MRCA of the seed: {} {} CI {} to {}".format(
-        ancestor, decimal_to_date(attr(nodes[ancestor], "num_date")),
+    say("")
+    say("FEATURED CLUSTER: {} {}, {} genomes".format(featured_serotype, ancestor, len(clade)))
+    say("  common ancestor {} range {} to {}".format(
+        decimal_to_date(attr(nodes[ancestor], "num_date")),
         decimal_to_date(confidence[0]), decimal_to_date(confidence[1])))
-    say("tips under it: {}".format(len(clade)))
+
+    def up(name, levels):
+        node = nodes[name]
+        for _ in range(levels):
+            if parents[node["name"]] is None:
+                break
+            node = parents[node["name"]]
+        return node["name"]
+
+    landmarks = [{"role": "featured_cluster", "serotype": featured_serotype, "node": ancestor,
+                  "date": decimal_to_date(attr(nodes[ancestor], "num_date")),
+                  "genomes": len(clade), "members": " ".join(sorted(clade))},
+                 {"role": "featured_cluster_context", "serotype": featured_serotype,
+                  "node": up(ancestor, 1), "date": "", "genomes": "", "members": ""}]
 
     cluster_rows = []
     for name in clade:
@@ -262,7 +387,7 @@ def main():
             "ambiguous_fraction": validation.get(name, {}).get("ambiguous_fraction", ""),
         })
     cluster_rows.sort(key=lambda r: r["date"])
-    write_tsv("denv2_cluster.tsv", list(cluster_rows[0]), cluster_rows)
+    write_tsv("cluster.tsv", list(cluster_rows[0]), cluster_rows)
     for row in cluster_rows:
         say("  " + "\t".join(str(row[k]) for k in ("date", "sample", "county", "case_origin",
                                                    "vadr_flag", "private_mutations",
@@ -294,7 +419,7 @@ def main():
                                                       row["counties"], row["nuc_changes_on_branch"],
                                                       row["aa_changes_on_branch"]))
         say("      " + row["tips"])
-    write_tsv("denv2_cluster_structure.tsv", list(inside_rows[0]), inside_rows)
+    write_tsv("cluster_structure.tsv", list(inside_rows[0]), inside_rows)
 
     # the path from the clade up to the root, with the reconstructed exposure at each step
     say("")
@@ -337,15 +462,17 @@ def main():
                     name, outside[-1]["date"], outside[-1]["county"] or outside[-1]["country"],
                     outside[-1]["country_exposure"], outside[-1]["case_origin"]))
         cursor = parents[cursor]["name"] if parents[cursor] else None
-    write_tsv("denv2_cluster_path.tsv", list(path_rows[0]), path_rows)
-    write_tsv("denv2_cluster_relatives.tsv", list(outside[0]), outside[:40])
+    write_tsv("cluster_path.tsv", list(path_rows[0]), path_rows)
+    write_tsv("cluster_relatives.tsv", list(outside[0]), outside[:40])
 
     # 4. pairwise distances over the focus set
     focus = list(clade) + [row["sample"] for row in outside[:12]]
-    for extra in ("TVU26000552", "TVU26000553", "TVU26000530"):
-        if extra in nodes and extra not in focus:
+    for extra in settings["matrix_extra"]:
+        if extra not in nodes:
+            raise SystemExit("matrix_extra names {}, which is not in this build".format(extra))
+        if extra not in focus:
             focus.append(extra)
-    seqs = sequences(denv2["tree"], denv2["root_sequence"]["nuc"], set(focus))
+    seqs = sequences(featured["tree"], featured["root_sequence"]["nuc"], set(focus))
     pairs = []
     for i, one in enumerate(focus):
         for two in focus[i + 1:]:
@@ -354,8 +481,11 @@ def main():
             pairs.append({"a": one, "b": two, "snps": differ, "sites_compared": shared,
                           "unambiguous_a": called[0], "unambiguous_b": called[1],
                           "assembled_sites_in_common_at_most": min(called) if all(called) else ""})
-    write_tsv("denv2_distances.tsv", ["a", "b", "snps", "sites_compared", "unambiguous_a",
+    write_tsv("distances.tsv", ["a", "b", "snps", "sites_compared", "unambiguous_a",
                                       "unambiguous_b", "assembled_sites_in_common_at_most"], pairs)
+    landmarks.append({"role": "matrix", "serotype": featured_serotype, "node": "",
+                      "date": "", "genomes": len(clade) + len(settings["matrix_extra"]),
+                      "members": " ".join(clade + list(settings["matrix_extra"]))})
     say("")
     say("PAIRWISE DISTANCES over {} genomes, {} pairs".format(len(focus), len(pairs)))
     for row in sorted(pairs, key=lambda r: r["snps"])[:12]:
@@ -368,65 +498,81 @@ def main():
     closest = min(across, key=lambda p: p["snps"])
     say("  clade to anything outside it: closest {} SNP, {} vs {}".format(
         closest["snps"], closest["a"], closest["b"]))
-    for target in ("TVU26000552", "MosquitoPool_K26-10948"):
+    vectors = [n for n in clade if attr(nodes[n], "host_type") == "Mosquito"]
+    for target in list(settings["matrix_extra"]) + vectors:
         near = sorted((p for p in pairs if target in (p["a"], p["b"])), key=lambda r: r["snps"])[:5]
         say("  nearest to {}: ".format(target) + ", ".join(
             "{} {}".format(p["b"] if p["a"] == target else p["a"], p["snps"]) for p in near))
 
-    # 4b. what sits nearest to each local case that is not in the cluster
+    # 4b. what sits nearest to every Florida genome, and which of them no cluster claimed
     say("")
-    say("NEAREST RELATIVES OF EVERY LOCAL CASE OUTSIDE THE HILLSBOROUGH CLADE")
-    nearest_rows = []
+    say("NEAREST RELATIVES, AND THE GENOMES NO CLUSTER CLAIMED")
+    claimed = {t["name"] for s in SEROTYPES for _, tips in clusters[s] for t in tips}
+    nearest_rows, unclustered_rows = [], []
     for serotype in SEROTYPES:
-        queries = [t["name"] for t in tips_by[serotype]
-                   if attr(t, "data_source") == "Florida BPHL"
-                   and t["name"] not in clade
-                   and (attr(t, "case_origin") == "local"
-                        or attr(t, "host_type") == "Mosquito"
-                        or attr(t, "case_origin") is None)]
+        index = nodes_by[serotype]
+        queries = [t["name"] for t in tips_by[serotype] if attr(t, "data_source") == "Florida BPHL"]
         if not queries:
             continue
+        candidates = {q: near_candidates(q, parents_by[serotype]) for q in queries}
+        wanted = set(queries)
+        for names in candidates.values():
+            wanted.update(names)
         tree = trees[serotype]
-        every = {n["name"] for n in tips_by[serotype]}
-        seqs_all = sequences(tree["tree"], tree["root_sequence"]["nuc"], every)
-        index = {n["name"]: n for n in walk(tree["tree"])}
+        seqs_all = sequences(tree["tree"], tree["root_sequence"]["nuc"], wanted)
         for query in queries:
-            scored = []
-            for other in every:
-                if other == query:
-                    continue
-                differ, shared = distance(seqs_all[query], seqs_all[other])
-                scored.append((differ, other, shared))
-            scored.sort()
-            for differ, other, shared in scored[:5]:
+            scored = sorted((distance(seqs_all[query], seqs_all[other])[0], other)
+                            for other in candidates[query])
+            for differ, other in scored[:5]:
                 tip = index[other]
-                row = {"serotype": serotype, "sample": query, "neighbour": other, "snps": differ,
-                       "source": attr(tip, "data_source"),
-                       "place": attr(tip, "location") or attr(tip, "country"),
-                       "country_exposure": attr(tip, "country_exposure"),
-                       "case_origin": attr(tip, "case_origin") or "",
-                       "date": collected(other, tip)}
-                nearest_rows.append(row)
-            best = nearest_rows[-5:]
-            say("  {} {} ({}, {}): ".format(serotype, query,
-                                            attr(index[query], "location"),
-                                            collected(query, index[query]))
-                + ", ".join("{} {} SNP [{} {} {}]".format(r["neighbour"], r["snps"], r["source"],
-                                                          r["place"], r["date"]) for r in best))
+                nearest_rows.append({
+                    "serotype": serotype, "sample": query, "neighbour": other, "snps": differ,
+                    "source": attr(tip, "data_source"),
+                    "place": attr(tip, "location") or attr(tip, "country"),
+                    "country_exposure": attr(tip, "country_exposure"),
+                    "case_origin": attr(tip, "case_origin") or "",
+                    "date": collected(other, tip)})
+            if query in claimed or not scored:
+                continue
+            differ, other = scored[0]
+            tip, self_tip = index[other], index[query]
+            unclustered_rows.append({
+                "sample": query, "serotype": serotype,
+                "county": attr(self_tip, "location"),
+                "case_origin": attr(self_tip, "case_origin") or "(missing)",
+                "travel_country": attr(self_tip, "country_exposure"),
+                "date": collected(query, self_tip),
+                "nearest": other, "snps": differ,
+                "nearest_source": attr(tip, "data_source"),
+                "nearest_place": attr(tip, "location") or attr(tip, "country"),
+                "nearest_date": collected(other, tip)})
     write_tsv("nearest_relatives.tsv", list(nearest_rows[0]), nearest_rows)
+    unclustered_rows.sort(key=lambda r: (r["case_origin"] != "local", r["serotype"], -r["snps"]))
+    write_tsv("unclustered.tsv", list(unclustered_rows[0]), unclustered_rows)
+    say("  genomes in a cluster: {}, on their own: {}".format(len(claimed), len(unclustered_rows)))
+    for row in unclustered_rows:
+        if row["case_origin"] in ("local", "(missing)"):
+            say("  {} {} {} {} {}: nearest {} at {} SNP [{} {}]".format(
+                row["serotype"], row["sample"], row["county"], row["case_origin"], row["date"],
+                row["nearest"], row["snps"], row["nearest_source"], row["nearest_place"]))
 
-    # 4d. the two clades behind the Florida DENV2 genomes
-    def marked_by(gene, change):
-        """The clade whose own branch carries this amino acid change."""
-        for node in walk(denv2["tree"]):
-            if change in node.get("branch_attrs", {}).get("mutations", {}).get(gene, []):
-                return node
-        raise SystemExit("no branch carries {} {}".format(gene, change))
+    # 4d. the clades that hold the Florida genomes of the featured serotype
+    def is_clade(tips):
+        """Enough Florida genomes to be a story of its own, with little public company inside."""
+        inside = florida_tips(tips)
+        return len(inside) >= min_florida and len(tips) - len(inside) <= max_public
 
-    clades = [("outbreak", marked_by("E", "S7A")), ("travelers", marked_by("NS2A", "I33L"))]
+    found = discover(featured["tree"], is_clade)
+    if not found:
+        raise SystemExit("no clade holds {} Florida genomes with at most {} public ones".format(
+            min_florida, max_public))
+    clades = []
+    for node, tips in found:
+        holds_cluster = any(name in {t["name"] for t in tips} for name in clade)
+        clades.append(("carries the cluster" if holds_cluster else "travel only", node))
     sublineage_rows, member_of, context_rows = [], {}, []
     say("")
-    say("THE TWO CLADES")
+    say("CLADES HOLDING THE FLORIDA GENOMES")
     for label, node in clades:
         members = [n for n in walk(node) if is_tip(n) and attr(n, "data_source") == "Florida BPHL"]
         muts = node.get("branch_attrs", {}).get("mutations", {})
@@ -445,7 +591,16 @@ def main():
                 "date": collected(tip["name"], tip), "vadr_flag": attr(tip, "vadr_flag"),
             })
     sublineage_rows.sort(key=lambda r: (r["sublineage"], r["date"]))
-    write_tsv("denv2_sublineages.tsv", list(sublineage_rows[0]), sublineage_rows)
+    write_tsv("clades.tsv", list(sublineage_rows[0]), sublineage_rows)
+    for label, node in clades:
+        members = [t["name"] for t in florida_tips(clade_tips(node))]
+        landmarks.append({"role": "clade", "serotype": featured_serotype, "node": node["name"],
+                          "date": decimal_to_date(attr(node, "num_date")),
+                          "genomes": len(members), "members": " ".join(sorted(members)),
+                          "label": label, "context_node": up(node["name"], 2)})
+    write_tsv("landmarks.tsv",
+              ["role", "label", "serotype", "node", "context_node", "date", "genomes", "members"],
+              landmarks)
 
     # what each clade is related to, level by level up the tree
     say("")
@@ -472,13 +627,13 @@ def main():
                 level, cursor["name"], decimal_to_date(attr(cursor, "num_date")), len(joining),
                 dict(Counter(attr(n, "country") for n in joining))))
             cursor = parents[cursor["name"]]
-    write_tsv("denv2_clade_context.tsv",
+    write_tsv("clade_context.tsv",
               ["clade", "level", "node", "sample", "source", "country", "division", "date"],
               context_rows)
 
     # every close pair of Florida genomes outside the outbreak group
-    florida = [t["name"] for t in tips_by["denv2"] if attr(t, "data_source") == "Florida BPHL"]
-    all_seqs = sequences(denv2["tree"], denv2["root_sequence"]["nuc"], set(florida))
+    florida = [t["name"] for t in tips_by[featured_serotype] if attr(t, "data_source") == "Florida BPHL"]
+    all_seqs = sequences(featured["tree"], featured["root_sequence"]["nuc"], set(florida))
     close = []
     for i, one in enumerate(florida):
         for two in florida[i + 1:]:
@@ -496,7 +651,7 @@ def main():
                 "sublineage": member_of.get(one, "") if member_of.get(one) == member_of.get(two) else "",
             })
     close.sort(key=lambda r: (r["snps"], r["date_a"]))
-    write_tsv("denv2_close_pairs.tsv",
+    write_tsv("close_pairs.tsv",
               ["snps", "a", "b", "county_a", "county_b", "exposure_a", "exposure_b",
                "date_a", "date_b", "sublineage"], close)
     say("")
@@ -518,22 +673,30 @@ def main():
             dict(Counter(attr(t, "case_origin") or "(missing)" for t in florida))))
 
     # 5. the lineage in context
+    lineage = Counter(attr(t, "minor_lineage") for t in tips_by[featured_serotype]
+                      if attr(t, "data_source") == "Florida BPHL" and attr(t, "minor_lineage"))
+    main_lineage = lineage.most_common(1)[0][0] if lineage else ""
     context = []
-    for tip in tips_by["denv2"]:
-        if attr(tip, "minor_lineage") == "2II_F.1.1.2":
+    for tip in tips_by[featured_serotype]:
+        if attr(tip, "minor_lineage") == main_lineage:
             context.append({"country": attr(tip, "country"),
                             "year": int(attr(tip, "num_date")) if attr(tip, "num_date") else "",
                             "source": attr(tip, "data_source")})
     counts = Counter((c["country"], c["year"]) for c in context)
-    write_tsv("lineage_2II_F_1_1_2.tsv", ["country", "year", "n"],
+    write_tsv("lineage_context.tsv", ["country", "year", "n"],
               [{"country": k[0], "year": k[1], "n": v} for k, v in sorted(counts.items())])
     say("")
-    say("2II_F.1.1.2 BY COUNTRY: " + ", ".join(
+    say("{} BY COUNTRY: ".format(main_lineage) + ", ".join(
         "{} {}".format(k, v) for k, v in Counter(c["country"] for c in context).most_common()))
-    cuba = [int(attr(t, "num_date")) for t in tips_by["denv2"]
-            if attr(t, "country") == "Cuba" and attr(t, "num_date")]
-    say("Cuban DENV2 genomes in the build: {}, latest {}, of lineage 2II_F.1.1.2: {}".format(
-        len(cuba), max(cuba), sum(1 for c in context if c["country"] == "Cuba")))
+    exposures = Counter(attr(t, "country_exposure") for t in tips_by[featured_serotype]
+                        if attr(t, "data_source") == "Florida BPHL"
+                        and attr(t, "case_origin") == "travel-associated")
+    say("travel countries among the Florida genomes: {}".format(dict(exposures.most_common())))
+    for country, _ in exposures.most_common(3):
+        years = [int(attr(t, "num_date")) for t in tips_by[featured_serotype]
+                 if attr(t, "country") == country and attr(t, "num_date")]
+        say("  public genomes from {}: {}{}".format(
+            country, len(years), ", newest {}".format(max(years)) if years else ""))
 
     # 6. epidemiological denominators
     weeks, months, counties, origins = Counter(), Counter(), Counter(), Counter()
@@ -579,6 +742,47 @@ def main():
     say("  date range: {} to {}".format(min(r["date"] for r in dated), max(r["date"] for r in dated)))
     say("  specimens with no metadata row: " + ", ".join(
         r["sample"] for r in specimen_rows if not r["date"]))
+
+    # 7. the numbers a narrative is likely to quote, in one flat file to check a draft against
+    facts = [("specimens sequenced", len(specimens)),
+             ("serotype assigned", serotyped),
+             ("VADR PASS", flags["PASS"]),
+             ("VADR REVIEW", flags["REVIEW"]),
+             ("VADR FAIL", flags["FAIL"]),
+             ("genomes in the build", len(in_build)),
+             ("collection dates", "{} to {}".format(min(r["date"] for r in dated),
+                                                    max(r["date"] for r in dated)))]
+    for serotype in SEROTYPES:
+        facts.append(("{} genomes".format(serotype),
+                      sum(1 for r in rows if r["serotype"] == serotype)))
+    facts += [("genomes acquired in Florida", sum(1 for r in rows if r["case_origin"] == "local")),
+              ("case origin not recorded", sum(1 for r in rows if r["case_origin"] == "(missing)")),
+              ("clusters found", len(cluster_table)),
+              ("featured cluster serotype", featured_serotype),
+              ("featured cluster genomes", len(clade)),
+              ("featured cluster counties",
+               ",".join(sorted({attr(nodes[n], "location") for n in clade}))),
+              ("featured cluster SNP range", "{} to {}".format(min(p["snps"] for p in within),
+                                                               max(p["snps"] for p in within))),
+              ("nearest genome outside the cluster", "{} at {} SNP".format(
+                  closest["b"] if closest["a"] in set(clade) else closest["a"], closest["snps"])),
+              ("cluster ancestor", decimal_to_date(attr(nodes[ancestor], "num_date"))),
+              ("cluster ancestor range", "{} to {}".format(decimal_to_date(confidence[0]),
+                                                           decimal_to_date(confidence[1]))),
+              ("genomes in no cluster", len(unclustered_rows)),
+              ("locally acquired in no cluster",
+               sum(1 for r in unclustered_rows if r["case_origin"] == "local")),
+              ("close pairs within 3 SNP", len(close)),
+              ("main lineage", main_lineage),
+              ("genomes of the main lineage", len(context))]
+    for label, node in clades:
+        facts.append(("clade {}".format(label), len(florida_tips(clade_tips(node)))))
+    write_tsv("report_facts.tsv", ["fact", "value"],
+              [{"fact": name, "value": value} for name, value in facts])
+    say("")
+    say("FACTS A NARRATIVE QUOTES")
+    for name, value in facts:
+        say("  {:<38} {}".format(name, value))
 
     with open(os.path.join(results(), "findings.txt"), "w", encoding="utf-8") as handle:
         handle.write("\n".join(findings) + "\n")

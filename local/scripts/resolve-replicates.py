@@ -16,7 +16,7 @@ import sys
 from Bio import SeqIO
 
 UNAMBIGUOUS = set("ACGTU")
-RUN_SUFFIX = re.compile(r"(?:_(?:NC|RJ)_\d+|[-_](?:repeat\d*|NextSeq|test))$")
+RUN_SUFFIX = re.compile(r"(?:_(?:NC|RJ)_\d+|[-_](?:repeat\d*|NextSeq|test|[Rr]))$")
 
 
 def parse_args():

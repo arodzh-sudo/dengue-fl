@@ -57,7 +57,7 @@ comes from it.
 
 Run identifiers can carry tags the metadata does not: a `t_` prefix, a run suffix
 (`_NC_<date>`, `_RJ_<date>`, `-repeat`, `_repeat`, `-repeat2`, `-NextSeq`,
-`_test`) or a trailing `K` or `k`. They are stripped only to find the metadata
+`_test`, `_R`, `_r`) or a trailing `K` or `k`. They are stripped only to find the metadata
 row; the tip keeps the full run identifier. When a specimen has several runs, the
 workflow keeps a `PASS` run over any other, then the run with the most
 unambiguous bases, and records the choice in `results/replicates.tsv`.

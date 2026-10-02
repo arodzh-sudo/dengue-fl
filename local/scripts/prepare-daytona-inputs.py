@@ -32,7 +32,7 @@ OUTPUT_COLUMNS = [
     "host",
     "vadr_flag",
 ]
-RUN_SUFFIX = re.compile(r"(?:_(?:NC|RJ)_\d+|[-_](?:repeat\d*|NextSeq|test))$")
+RUN_SUFFIX = re.compile(r"(?:_(?:NC|RJ)_\d+|[-_](?:repeat\d*|NextSeq|test|[Rr]))$")
 FASTA_NAME = re.compile(r"(?:[._]consensus)?\.(?:fasta|fa|fna)$", re.IGNORECASE)
 
 

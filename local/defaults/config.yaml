@@ -13,7 +13,7 @@ daytona_runs: []
 sample_metadata: "input/metadata.txt"
 vadr_flags: ["PASS", "REVIEW"]
 # Samples whose sample_id matches this are mosquito pools and get vector_host.
-vector_pattern: "(?i)mosquito"
+vector_pattern: "(?i)^(?:mosquitopool|mosquito|mpool|mp)[_-]"
 vector_host: "Aedes aegypti"
 
 # Values stamped onto every local record. These strings must match the values

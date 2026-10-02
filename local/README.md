@@ -64,9 +64,17 @@ unambiguous bases, and records the choice in `results/replicates.tsv`.
 
 `travel_country` passes through `defaults/country_synonyms.tsv` to match the
 spellings in `phylogenetic/defaults/color_orderings.tsv`. Mosquito pools are
-recognized from `sample_id` (`vector_pattern`, default any identifier containing
-"mosquito") and get `host` `Aedes aegypti` (`vector_host`), which the workflow
-resolves to `Aedes` and `Mosquito` through ingest's host map.
+recognized from `sample_id` (`vector_pattern`, by default an identifier starting
+`MosquitoPool`, `Mosquito`, `MPool` or `MP` followed by `_` or `-`) and get
+`host` `Aedes aegypti` (`vector_host`), which the workflow resolves to `Aedes`
+and `Mosquito` through ingest's host map.
+
+Add an optional `host` column to override that per sample. It is needed whenever
+an identifier carries no hint of what the sample is, as `TVQ23000014` does not,
+and whenever the lab adopts a new prefix before `vector_pattern` catches up. The
+column wins over the pattern, and `results/input_report.txt` lists every sample
+treated as a pool and whether the name or the column decided it, so a missed
+pool shows up as an absence from a list you can count.
 
 ### `results/input_report.txt`
 

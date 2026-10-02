@@ -179,6 +179,7 @@ def main():
                 chosen[sample_id] = candidate
 
     kept, no_metadata, multi_record, used = [], [], [], set()
+    vector_samples, host_conflicts = [], []
     with open(args.output_sequences, "w", encoding="utf-8") as fasta:
         for sample_id, run_row in chosen.items():
             key = next((k for k in join_keys(sample_id) if k in metadata), None)
@@ -192,6 +193,11 @@ def main():
             used.add(key)
             epi = metadata[key]
             travel_country = epi["travel_country"]
+            host = epi.get("host", "") or (args.vector_host if vector.search(sample_id) else "")
+            if host == args.vector_host:
+                vector_samples.append((sample_id, "metadata" if epi.get("host") else "name"))
+            elif host and vector.search(sample_id):
+                host_conflicts.append((sample_id, host))
             kept.append({
                 "sample_id": sample_id,
                 "serotype": run_row["serotype"],
@@ -200,7 +206,7 @@ def main():
                 "location": epi["location"],
                 "case_origin": epi["case_origin"],
                 "travel_country": synonyms.get(travel_country, travel_country),
-                "host": args.vector_host if vector.search(sample_id) else "",
+                "host": host,
                 "vadr_flag": run_row["flag"],
             })
             fasta.write(f">{sample_id}\n{records[0].seq}\n")
@@ -247,6 +253,8 @@ def main():
         section("sequenced in more than one run", duplicates,
                 lambda i: f"{i[0]}\tkept {i[3]['flag']} from {i[3]['run']}; "
                           f"runs {i[1]['flag']} {i[1]['run']} and {i[2]['flag']} {i[2]['run']}")
+        section("treated as vector pools", vector_samples, lambda i: f"{i[0]}\tfrom {i[1]}")
+        section("host column disagrees with the vector pattern", host_conflicts, lambda i: f"{i[0]}\t{i[1]}")
         section("metadata rows not used", ignored, lambda i: f"{i[0]}\t{i[1]}")
 
     if not kept:

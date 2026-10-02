@@ -13,6 +13,9 @@ environment*
 local/input/*
 !local/input/.gitkeep
 
+# Local working notes on how to read a finished build. Not a repo document.
+/ANALYSIS.md
+
 # Analysis working directories hold patient level tables, builds and drafts.
 # Only the report scripts are tracked.
 /analysis/*

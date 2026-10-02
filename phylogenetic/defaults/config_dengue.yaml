@@ -21,6 +21,10 @@ filter:
     genome: 5000
     E: 1000
   subsample_max_sequences: '4000'
+  # Seeded so two builds over the same ingest output draw the same public tips.
+  # Without this, cluster membership shifts between builds for reasons that are
+  # not epidemiological, and no delta between them is attributable.
+  subsample_seed: '20260917'
 
 refine:
   # Estimated clock rates from successful auspice builds as of 2025-12-15:

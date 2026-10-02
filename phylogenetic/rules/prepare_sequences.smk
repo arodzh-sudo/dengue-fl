@@ -40,6 +40,7 @@ rule filter:
     params:
         group_by = config['filter']['group_by'],
         subsample_max_sequences = config['filter']['subsample_max_sequences'],
+        subsample_seed = config['filter']['subsample_seed'],
         min_length = lambda wildcard: config['filter']['min_length'][wildcard.gene],
         strain_id = config.get("strain_id_field", "strain"),
     shell:
@@ -53,6 +54,7 @@ rule filter:
             --output-sequences {output.sequences} \
             --group-by {params.group_by} \
             --subsample-max-sequences {params.subsample_max_sequences} \
+            --subsample-seed {params.subsample_seed} \
             --min-length {params.min_length} \
             --exclude-where country=? region=? date=? is_lab_host='true' \
             --query-columns is_lab_host:str

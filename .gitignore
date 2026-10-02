@@ -24,6 +24,8 @@ local/input/*
 !/analysis/florida_2026_surge/scripts/
 # First pass count check, written against the older data layout.
 /analysis/florida_2026_surge/scripts/reconcile_counts.py
+# Build comparison, kept local. Builds and their analysis do not live in the repo.
+/analysis/florida_2026_surge/scripts/diff_builds.py
 
 # Snakemake state dir
 .snakemake/

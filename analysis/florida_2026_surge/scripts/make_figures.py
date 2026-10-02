@@ -24,23 +24,32 @@ PUBLIC = "#c9c8c2"
 LOCAL = "#1c5cab"
 IMPORTED = "#86b6ef"
 UNDETERMINED = "#8a8a85"
-WEDGE = "#4a3aa7"
+# the collapsed cluster is drawn in ink rather than a hue, so it can never read as a county
+WEDGE = "#0b0b0b"
 BLUES = ["#cde2fb", "#b7d3f6", "#9ec5f4", "#86b6ef", "#6da7ec", "#5598e7", "#3987e5",
          "#2a78d6", "#256abf", "#1c5cab", "#184f95", "#104281", "#0d366b"]
 FONT = "Inter, 'Helvetica Neue', Arial, sans-serif"
 MONO = "'SF Mono', Menlo, Consolas, monospace"
 
+SEROTYPE_COLOR = OrderedDict([("denv1", "#eda100"), ("denv2", "#2a78d6"),
+                              ("denv3", "#1baf7a"), ("denv4", "#9a6dd7")])
 ORIGIN_COLOR = {"local": LOCAL, "travel-associated": IMPORTED, "unknown": UNDETERMINED,
                 "(missing)": UNDETERMINED, "blank": UNDETERMINED}
-COUNTY_HUES = [HILLSBOROUGH, PINELLAS, DADE, "#eda100", "#4a3aa7", "#e87ba4"]
+# Enough hues for every county a build has carried so far. The cluster's counties take the
+# leading three, which are the ones a colorblind reader separates most easily.
+COUNTY_HUES = [HILLSBOROUGH, PINELLAS, DADE, "#4a3aa7", "#e87ba4", "#eda100",
+               "#e34948", "#17a2b8", "#8a5a2b", "#7f8c00", "#9a6dd7", "#546e7a"]
 _COUNTY_COLOR = {}
 
 
 def county_color(name):
-    """The counties in this build take the fixed hues in turn, commonest first."""
+    """The featured cluster's counties take the leading hues, then the rest by how many genomes."""
     if not _COUNTY_COLOR:
-        counted = Counter(row["county"] for row in read("tips.tsv") if row["county"])
-        for index, (county, _) in enumerate(counted.most_common()):
+        in_cluster = Counter(row["county"] for row in read("cluster.tsv") if row["county"])
+        overall = Counter(row["county"] for row in read("tips.tsv") if row["county"])
+        order = [county for county, _ in in_cluster.most_common()]
+        order += [county for county, _ in overall.most_common() if county not in order]
+        for index, county in enumerate(order):
             _COUNTY_COLOR[county] = COUNTY_HUES[index] if index < len(COUNTY_HUES) else OTHER_COUNTY
     return _COUNTY_COLOR.get(name, OTHER_COUNTY)
 
@@ -119,14 +128,18 @@ def read(name):
         return list(csv.DictReader(handle, delimiter="\t"))
 
 
-def legend(svg, x, y, entries, size=9, gap=118, shape="circle"):
+def legend(svg, x, y, entries, size=9, gap=118, shape="circle", width=None):
+    """One row per line, wrapping when the entries would run past the figure."""
+    per_row = max(1, int(((width or svg.width) - x) // gap))
     for index, (label, color) in enumerate(entries):
-        cx = x + index * gap
+        cx = x + (index % per_row) * gap
+        cy = y + (index // per_row) * 16
         if shape == "square":
-            svg.rect(cx, y - 7, 9, 9, color, rx=2)
+            svg.rect(cx, cy - 7, 9, 9, color, rx=2)
         else:
-            svg.circle(cx + 4, y - 3, 4.5, color)
-        svg.text(cx + 14, y, label, size=size, fill=INK_SOFT)
+            svg.circle(cx + 4, cy - 3, 4.5, color)
+        svg.text(cx + 14, cy, label, size=size, fill=INK_SOFT)
+    return (len(entries) - 1) // per_row * 16
 
 
 def year_fraction(date):
@@ -149,12 +162,13 @@ def month_ticks(low, high):
 
 # ---------------------------------------------------------------- figure 1
 def figure_one():
-    weeks = read("sequenced_weeks_2026.tsv")
+    rows = [row for row in read("sequenced_specimens.tsv") if row["week"].startswith("2026")]
     svg = Svg(900, 300)
     base = -10
     counts = {}
-    for row_ in weeks:
-        counts.setdefault(row_["week"], Counter())[row_["case_origin"]] = int(row_["n"])
+    for row_ in rows:
+        key = (row_["serotype"], row_["case_origin"])
+        counts.setdefault(row_["week"], Counter())[key] += 1
     ordered = sorted(counts)
     first = dt.date.fromisoformat(ordered[0])
     last = dt.date.fromisoformat(ordered[-1])
@@ -163,6 +177,12 @@ def figure_one():
     plot_top, plot_bottom, left, right = base + 30, base + 210, 66, 880
     tallest = max(sum(c.values()) for c in counts.values())
     step = (right - left) / max(len(span), 1)
+    present = [name for name in SEROTYPE_COLOR if any(name == s_ for s_, _ in
+                                                      (k for c in counts.values() for k in c))]
+    layers = ([(s_, "local") for s_ in present]
+              + [(s_, o) for o in ("undetermined", "unknown", "blank", "(missing)")
+                 for s_ in present]
+              + [(s_, "travel-associated") for s_ in reversed(present)])
     for level in range(0, tallest + 1, 2):
         y = plot_bottom - level / tallest * (plot_bottom - plot_top)
         svg.line(left, y, right, y, stroke=GRID)
@@ -171,15 +191,20 @@ def figure_one():
         bucket = counts.get(week, Counter())
         x = left + index * step
         stacked = 0
-        for origin in ("travel-associated", "unknown", "local"):
-            value = bucket.get(origin, 0)
+        for key in layers:
+            value = bucket.get(key, 0)
             if not value:
                 continue
+            serotype, origin = key
             height = value / tallest * (plot_bottom - plot_top)
             y = plot_bottom - stacked - height
-            svg.rect(x + 2, y, step - 6, height - 2, ORIGIN_COLOR[origin], rx=2)
+            fill = shade(serotype, origin)
+            svg.rect(x + 2, y, step - 6, height - 2, fill, rx=2)
+            svg.text(x + 2 + (step - 6) / 2, y + (height - 2) / 2 + 3, str(value), size=8.5,
+                     family=MONO, anchor="middle",
+                     fill=SURFACE if origin == "local" else INK)
             stacked += height
-        if sum(bucket.values()):
+        if len(bucket) > 1:
             svg.text(x + (step - 4) / 2, plot_bottom - stacked - 6, str(sum(bucket.values())),
                      size=9, fill=INK_SOFT, anchor="middle")
         if dt.date.fromisoformat(week).day <= 7 or index == 0:
@@ -193,11 +218,43 @@ def figure_one():
                 (plot_top + plot_bottom) / 2, "Sequenced specimens"))
     svg.text((left + right) / 2, plot_bottom + 42, "Week of collection, weeks starting Monday",
              size=11, fill=INK_SOFT, anchor="middle")
-    legend(svg, 66, plot_bottom + 74,
-           [("Acquired in Florida", LOCAL), ("Travel-associated", IMPORTED),
-            ("Origin not recorded", UNDETERMINED)], shape="square", gap=150)
-    svg.height = int(plot_bottom) + 92
+    legend(svg, 0, plot_bottom + 74,
+           [(name.upper(), SEROTYPE_COLOR[name]) for name in present], shape="square", gap=88)
+    grey = any(origin not in ("local", "travel-associated") for _, origin in
+               (k for c in counts.values() for k in c))
+    svg.text(0, plot_bottom + 92,
+             "Full color is acquired in Florida and the pale tint is travel-associated." +
+             (" The hatched block has no origin recorded." if grey else ""),
+             size=10, fill=INK_MUTED)
+    svg.text(0, plot_bottom + 108, "The number in each block is that week's count for the serotype.",
+             size=10, fill=INK_MUTED)
+    svg.height = int(plot_bottom) + 124
+    svg.parts.insert(0, hatches(present))
     svg.save("fig1_weeks.svg")
+
+
+def tint(color, amount):
+    channels = (int(color[1:3], 16), int(color[3:5], 16), int(color[5:7], 16))
+    return "#" + "".join("{:02x}".format(int(v + (255 - v) * amount)) for v in channels)
+
+
+def shade(serotype, origin):
+    """Full strength for locally acquired, a pale tint for travel, hatched when origin is missing."""
+    color = SEROTYPE_COLOR[serotype]
+    if origin == "local":
+        return color
+    if origin == "travel-associated":
+        return tint(color, 0.62)
+    return "url(#hatch-{})".format(serotype)
+
+
+def hatches(serotypes):
+    """Stripes of the serotype color, so a specimen of unrecorded origin keeps its hue."""
+    return '<defs>{}</defs>'.format("".join(
+        '<pattern id="hatch-{0}" width="5" height="5" patternUnits="userSpaceOnUse" '
+        'patternTransform="rotate(45)"><rect width="5" height="5" fill="{1}"/>'
+        '<line x1="0" y1="0" x2="0" y2="5" stroke="{2}" stroke-width="1.1"/></pattern>'.format(
+            name, tint(SEROTYPE_COLOR[name], 0.84), SEROTYPE_COLOR[name]) for name in serotypes))
 
 
 # ---------------------------------------------------------------- trees
@@ -250,7 +307,8 @@ def figure_two():
     ladder(root)
     y_of, order = layout(root)
 
-    top, bottom, left, right = 40, 40 + len(order) * 6.3, 60, 700
+    row = 4.6
+    top, bottom, left, right = 40, 40 + len(order) * row, 60, 830
     svg = Svg(1040, int(bottom) + 76)
 
     low = attr(root, "num_date")
@@ -261,7 +319,7 @@ def figure_two():
         return left + (value - low) / (high - low + pad) * (right - left)
 
     def to_y(slot):
-        return top + slot * 6.3
+        return top + slot * row
 
     def color_of(node):
         if attr(node, "data_source") != "Florida BPHL":
@@ -281,37 +339,36 @@ def figure_two():
         x, y = to_x(attr(node, "num_date")), to_y(y_of[name])
         local = attr(node, "data_source") == "Florida BPHL"
         if not local:
-            svg.circle(x, y, 1.8, PUBLIC)
+            svg.circle(x, y, 1.6, PUBLIC)
             continue
         color = color_of(node)
         if attr(node, "host_type") == "Mosquito":
-            svg.diamond(x, y, 4, color, stroke=SURFACE, stroke_width=1)
+            svg.diamond(x, y, 3.4, color, stroke=SURFACE, stroke_width=0.9)
         elif attr(node, "case_origin") == "local":
-            svg.circle(x, y, 3.4, color, stroke=SURFACE, stroke_width=1)
+            svg.circle(x, y, 2.8, color, stroke=SURFACE, stroke_width=0.9)
         else:
-            svg.circle(x, y, 3.4, SURFACE, stroke=color, stroke_width=1.6)
-        svg.text(x + 7, y + 3.2, name, size=7.4, fill=INK, family=MONO)
+            svg.circle(x, y, 2.8, SURFACE, stroke=color, stroke_width=1.4)
 
     cluster = landmark("featured_cluster")["members"].split()
     top_y = min(to_y(y_of[n]) for n in cluster) - 5
     bottom_y = max(to_y(y_of[n]) for n in cluster) + 5
-    svg.line(866, top_y, 866, bottom_y, stroke=HILLSBOROUGH, width=2)
-    counties = sorted({attr(index[n], "location") for n in cluster})
-    svg.text(874, (top_y + bottom_y) / 2 - 4, " and ".join(counties[:2]), size=10,
-             fill=HILLSBOROUGH, weight=600)
-    svg.text(874, (top_y + bottom_y) / 2 + 9, "cluster", size=10, fill=HILLSBOROUGH, weight=600)
+    svg.line(856, top_y, 856, bottom_y, stroke=HILLSBOROUGH, width=2)
+    main = Counter(attr(index[n], "location") for n in cluster).most_common(1)[0][0]
+    svg.text(864, (top_y + bottom_y) / 2 - 4, main, size=10, fill=HILLSBOROUGH, weight=600)
+    svg.text(864, (top_y + bottom_y) / 2 + 9, "cluster", size=10, fill=HILLSBOROUGH, weight=600)
 
-    legend(svg, 0, bottom + 40,
-           county_legend() + [("Other county", OTHER_COUNTY), ("GenBank", PUBLIC)], gap=120)
-    svg.text(0, bottom + 62,
+    wrapped = legend(svg, 0, bottom + 40,
+                     county_legend() + [("GenBank", PUBLIC)], gap=120)
+    svg.text(0, bottom + 62 + wrapped,
              "Filled circle: acquired in Florida.  Open circle: travel-associated.  "
              "Diamond: mosquito pool.", size=10, fill=INK_MUTED)
+    svg.height = int(bottom) + 96 + wrapped
     svg.save("fig2_denv2_florida_tree.svg")
 
 
 def tree_figure(root, filename, collapse=(), band=None, collapse_label="",
                 row=26, right=520, scale=1.0):
-    """A time-scaled tree with county colors, SNP counts on the branches and one text column."""
+    """A time-scaled tree with county colors, substitution counts on the branches and one text column."""
     dates = recorded_dates()
     parents = {}
     index = {n["name"]: n for n in walk(root, None, parents)}
@@ -412,12 +469,13 @@ def tree_figure(root, filename, collapse=(), band=None, collapse_label="",
     entries = [e for e in entries if e[1] in used]
     if collapse:
         entries.append((collapse_label, WEDGE))
-    legend(svg, 0, bottom + 54, entries, gap=150)
+    wrapped = legend(svg, 0, bottom + 54, entries, gap=150)
     note = ("Filled: acquired in Florida.  Open: travel-associated.  Diamond: mosquito pool.  "
-            "Branch labels: amino acid changes and, in brackets, SNPs.")
+            "Branch labels: amino acid changes and, in brackets, nucleotide substitutions.")
     if band is not None:
         note += "  Shaded band: the range of dates for the cluster's common ancestor."
-    svg.text(0, bottom + 76, note, size=10, fill=INK_MUTED)
+    svg.text(0, bottom + 76 + wrapped, note, size=10, fill=INK_MUTED)
+    svg.height = int(bottom) + 120 + wrapped
     svg.save(filename)
 
 
@@ -529,9 +587,10 @@ def figure_four():
         svg.text(right + max(share * 600, 1) + 6, y + cell / 2 + 3.5,
                  "{:.1f}%".format(share * 100), size=8.5, fill=INK_MUTED, family=MONO)
     used = {county_color(county_of.get(name, "")) for name in order}
-    legend(svg, 0, top + size * cell + 34,
-           [c for c in county_legend() if c[1] in used], gap=120)
-    svg.text(0, top + size * cell + 58,
+    wrapped = legend(svg, 0, top + size * cell + 34,
+                     [c for c in county_legend() if c[1] in used], gap=120)
+    svg.height += wrapped
+    svg.text(0, top + size * cell + 58 + wrapped,
              "The dot beside each name gives the county. Darker cells are more similar. The bars "
              "on the right are the share of each assembly that was unresolved before the tree "
              "filled it in.", size=10, fill=INK_MUTED)
@@ -573,7 +632,8 @@ def figure_five():
                  size=10, weight=700, fill=INK_SOFT, family=MONO)
     svg.text(left + len(years) * cell_w + 12, top - 10, "total", size=10, fill=INK_SOFT)
     svg.text(150, top + len(countries) * cell_h + 34,
-             "USA includes the 54 Florida genomes of this build.", size=10, fill=INK_MUTED)
+             "Counted by where each infection was acquired, so a Florida case that travelled "
+             "counts against the country visited.", size=10, fill=INK_MUTED)
     svg.save("fig5_lineage_context.svg")
 
 
@@ -632,8 +692,9 @@ def figure_six():
             else:
                 svg.circle(x, cy, 3.8, SURFACE, stroke=color, stroke_width=1.5)
 
-    legend(svg, 0, cursor - 6, county_legend() + [("Other county", OTHER_COUNTY)], gap=120)
-    svg.text(0, cursor + 18,
+    wrapped = legend(svg, 0, cursor - 6, county_legend(), gap=120)
+    svg.height += wrapped
+    svg.text(0, cursor + 18 + wrapped,
              "Filled: acquired in Florida.  Open: travel-associated.  Diamond: mosquito pool.",
              size=10, fill=INK_MUTED)
     svg.save("fig6_serotypes.svg")
@@ -676,7 +737,9 @@ def figure_five_a():
     rows = [row for row in read("landmarks.tsv") if row["role"] == "clade"]
     data = load(rows[0]["serotype"])
     index = {n["name"]: n for n in walk(data["tree"])}
-    roots = [("Clade that {}".format(row["label"]), index[row["node"]]) for row in rows]
+    names = {"carries the cluster": "Clade carrying the outbreak",
+             "travel only": "Imported-only clade"}
+    roots = [(names.get(row["label"], row["label"]), index[row["node"]]) for row in rows]
     for _, root in roots:
         ladder(root)
     layouts = [(label, root) + layout(root) for label, root in roots]
@@ -689,6 +752,11 @@ def figure_five_a():
 
     def to_x(value):
         return left + (value - low) / (high - low) * (right - left)
+
+    def county_of(node):
+        if attr(node, "data_source") != "Florida BPHL":
+            return PUBLIC
+        return county_color(attr(node, "location"))
 
     height = top
     bands = []
@@ -703,16 +771,18 @@ def figure_five_a():
             svg.line(x, top - 12, x, height - gap, stroke=GRID)
             svg.text(x, top - 18, str(when.year), size=10, fill=INK_MUTED, anchor="middle")
 
+    used = set()
     for label, root, y_of, order, offset in bands:
         def to_y(slot, offset=offset):
             return offset + slot * row
 
-        draw_branches(svg, root, y_of, to_x, to_y, exposure_color,
+        draw_branches(svg, root, y_of, to_x, to_y, county_of,
                       lambda n: 1.8 if attr(n, "data_source") == "Florida BPHL" else 0.8)
         for name in order:
             node = [n for n in walk(root) if n["name"] == name][0]
+            used.add(county_of(node))
             tip_mark(svg, node, to_x(attr(node, "num_date")), to_y(y_of[name]),
-                     exposure_color(node), size=3.4)
+                     county_of(node), size=3.4)
         first, last = to_y(0) - 6, to_y(len(order) - 1) + 6
         svg.line(right + 30, first, right + 30, last, stroke=INK_MUTED, width=2)
         svg.text(right + 40, (first + last) / 2 - 5, label, size=11, weight=600, fill=INK)
@@ -720,7 +790,13 @@ def figure_five_a():
         svg.text(right + 40, (first + last) / 2 + 10,
                  "{} Florida genomes".format(florida), size=10, fill=INK_MUTED)
 
-    exposure_legend(svg, 0, height + 20)
+    wrapped = legend(svg, 0, height + 20,
+                     [entry for entry in county_legend() if entry[1] in used]
+                     + [("GenBank", PUBLIC)], gap=120)
+    svg.text(0, height + 42 + wrapped,
+             "Filled: acquired in Florida.  Open: travel-associated.  Diamond: mosquito pool.",
+             size=10, fill=INK_MUTED)
+    svg.height += wrapped
     svg.save("fig5a_exposure_tree.svg")
 
 
@@ -769,8 +845,8 @@ def main():
     figure_five()
     figure_six()
     cluster = landmark("featured_cluster")
-    counties = sorted({row["county"] for row in read("cluster.tsv") if row["county"]})
-    label = "{} cluster".format(" and ".join(counties[:2])) if counties else "cluster"
+    counties = Counter(row["county"] for row in read("cluster.tsv") if row["county"])
+    label = "{} cluster".format(counties.most_common(1)[0][0]) if counties else "cluster"
     featured_tree("fig3_cluster.svg", cluster["serotype"],
                   landmark("featured_cluster_context")["node"], band_name=cluster["node"],
                   row=31, scale=1.18)

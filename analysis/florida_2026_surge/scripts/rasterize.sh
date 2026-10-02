@@ -34,7 +34,7 @@ fi
 for svg in "$dir"/*.svg; do
   name="$(basename "$svg" .svg)"
   png="$dir/$name.png"
-  read -r width height < <(sed -n 's/.*width="\([0-9]*\)" height="\([0-9]*\)".*/\1 \2/p' "$svg" | head -1)
+  read -r width height < <(sed -n 's/^<svg [^>]*width="\([0-9]*\)" height="\([0-9]*\)".*/\1 \2/p' "$svg" | head -1)
   case "$engine" in
     rsvg)     rsvg-convert -z 2 -o "$png" "$svg" ;;
     inkscape) inkscape --export-type=png --export-dpi=192 --export-filename="$png" "$svg" >/dev/null 2>&1 ;;

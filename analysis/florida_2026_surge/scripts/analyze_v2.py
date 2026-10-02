@@ -57,6 +57,7 @@ def config():
     settings.setdefault("featured_cluster", "auto")
     settings.setdefault("featured_serotype", "denv2")
     settings.setdefault("matrix_extra", [])
+    settings.setdefault("matrix", "cluster")
     settings.setdefault("min_local", "2")
     settings.setdefault("min_florida", "5")
     settings.setdefault("max_public", "1")
@@ -483,9 +484,25 @@ def main():
                           "assembled_sites_in_common_at_most": min(called) if all(called) else ""})
     write_tsv("distances.tsv", ["a", "b", "snps", "sites_compared", "unambiguous_a",
                                       "unambiguous_b", "assembled_sites_in_common_at_most"], pairs)
+    if settings["matrix"] == "vectors":
+        # the pools, the case nearest each of them, and whatever the build asked for
+        vectors = [n for n in clade if attr(nodes[n], "host_type") == "Mosquito"]
+        chosen = list(vectors)
+        for pool in vectors:
+            near = sorted((p for p in pairs if pool in (p["a"], p["b"])), key=lambda p: p["snps"])
+            for pair in near:
+                other = pair["b"] if pair["a"] == pool else pair["a"]
+                if attr(nodes[other], "host_type") != "Mosquito":
+                    if other not in chosen:
+                        chosen.append(other)
+                    break
+    else:
+        chosen = list(clade)
+    for extra in settings["matrix_extra"]:
+        if extra not in chosen:
+            chosen.append(extra)
     landmarks.append({"role": "matrix", "serotype": featured_serotype, "node": "",
-                      "date": "", "genomes": len(clade) + len(settings["matrix_extra"]),
-                      "members": " ".join(clade + list(settings["matrix_extra"]))})
+                      "date": "", "genomes": len(chosen), "members": " ".join(chosen)})
     say("")
     say("PAIRWISE DISTANCES over {} genomes, {} pairs".format(len(focus), len(pairs)))
     for row in sorted(pairs, key=lambda r: r["snps"])[:12]:
@@ -632,12 +649,13 @@ def main():
               context_rows)
 
     # every close pair of Florida genomes outside the outbreak group
+    in_cluster = set(clade)
     florida = [t["name"] for t in tips_by[featured_serotype] if attr(t, "data_source") == "Florida BPHL"]
     all_seqs = sequences(featured["tree"], featured["root_sequence"]["nuc"], set(florida))
     close = []
     for i, one in enumerate(florida):
         for two in florida[i + 1:]:
-            if one in inside and two in inside:
+            if one in in_cluster and two in in_cluster:
                 continue
             differ, _ = distance(all_seqs[one], all_seqs[two])
             if differ > 3:
@@ -679,7 +697,7 @@ def main():
     context = []
     for tip in tips_by[featured_serotype]:
         if attr(tip, "minor_lineage") == main_lineage:
-            context.append({"country": attr(tip, "country"),
+            context.append({"country": attr(tip, "country_exposure") or attr(tip, "country"),
                             "year": int(attr(tip, "num_date")) if attr(tip, "num_date") else "",
                             "source": attr(tip, "data_source")})
     counts = Counter((c["country"], c["year"]) for c in context)

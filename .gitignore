@@ -13,19 +13,9 @@ environment*
 local/input/*
 !local/input/.gitkeep
 
-# Local working notes on how to read a finished build. Not a repo document.
-/ANALYSIS.md
-
-# Analysis working directories hold patient level tables, builds and drafts.
-# Only the report scripts are tracked.
-/analysis/*
-!/analysis/florida_2026_surge/
-/analysis/florida_2026_surge/*
-!/analysis/florida_2026_surge/scripts/
-# First pass count check, written against the older data layout.
-/analysis/florida_2026_surge/scripts/reconcile_counts.py
-# Build comparison, kept local. Builds and their analysis do not live in the repo.
-/analysis/florida_2026_surge/scripts/diff_builds.py
+# The report scripts, the builds and the patient level tables they hold live
+# outside this repo. This repo generates builds and nothing else.
+/analysis/
 
 # Snakemake state dir
 .snakemake/

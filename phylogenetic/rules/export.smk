@@ -83,10 +83,18 @@ rule prepare_auspice_config:
         # controls. division and location are left unreconstructed on purpose:
         # public rows rarely carry a county, so inferring one would put Florida
         # counties on foreign ancestors. They place tips on the map without lines.
+        #
+        # location_exposure is the county-level resolution that does draw lines.
+        # It carries an explicit value on every row, a county for a Florida case
+        # and the country for a public one, so the reconstruction is anchored and
+        # a foreign ancestor cannot come back as a Florida county. That makes it
+        # mixed resolution, so a Cuba to Hillsborough line crosses a resolution
+        # boundary by design.
         geo_resolutions=lambda wildcard: (
             ["region", "region_exposure", "division", "location"]
             if wildcard.serotype == "all"
-            else ["country", "region", "country_exposure", "region_exposure", "division", "location"]
+            else ["country", "region", "country_exposure", "region_exposure",
+                  "location_exposure", "division", "location"]
         ),
     run:
         export_config = config.get("export", {})
@@ -192,6 +200,16 @@ rule prepare_auspice_config:
                 "key": "region_exposure",
                 "title": "Region of exposure",
                 "type": "categorical"
+              },
+              {
+                "key": "location_exposure",
+                "title": "County of exposure",
+                "type": "categorical"
+              },
+              {
+                "key": "exposure_confirmed",
+                "title": "Exposure county confirmed",
+                "type": "categorical"
               }
             ],
             "geo_resolutions": params.geo_resolutions,
@@ -205,6 +223,8 @@ rule prepare_auspice_config:
               "case_origin",
               "vadr_flag",
               "location",
+              "location_exposure",
+              "exposure_confirmed",
               "division",
               "country",
               "region",
@@ -256,9 +276,20 @@ rule lat_longs:
     rows under the exposure names. Every original row is kept, so it works
     whether --lat-longs supplements the built-in table or replaces it.
 
+    location_exposure is mixed resolution, holding a Florida county for a local
+    case and a country for a public row, so it needs both sets of coordinates
+    under its own name. "unknown" is deliberately given none, which is what stops
+    Auspice drawing a line to it. Counties are taken only from defaults, not from
+    augur's table, because county names like Orange and Washington are generic US
+    place names and a duplicate key would resolve to whichever row augur reads
+    first.
+
     defaults/lat_longs.tsv adds the countries augur's table does not carry and
     the Florida county coordinates (Census 2025 county gazetteer internal points,
-    Miami-Dade spelled Dade to match the local metadata).
+    Miami-Dade spelled Dade to match the local metadata). It also carries the
+    location_exposure row for "Florida", the value a case acquired in state with
+    no county established falls back to, placed at an approximate state centre
+    rather than a gazetteer point because an unknown county has no real one.
     """
     input:
         extra = "defaults/lat_longs.tsv",
@@ -268,10 +299,16 @@ rule lat_longs:
         r"""
         augur_lat_longs=$(python3 -c "import augur, pathlib; print(pathlib.Path(augur.__file__).parent / 'data' / 'lat_longs.tsv')")
 
-        awk -F'\t' -v OFS='\t' '
+        awk -F'\t' -v OFS='\t' -v extra={input.extra:q} '
             {{ print }}
-            $1 == "country" {{ print "country_exposure", $2, $3, $4 }}
-            $1 == "region"  {{ print "region_exposure",  $2, $3, $4 }}
+            $1 == "country" {{
+                print "country_exposure",  $2, $3, $4
+                print "location_exposure", $2, $3, $4
+            }}
+            $1 == "region" {{ print "region_exposure", $2, $3, $4 }}
+            FILENAME == extra && $1 == "location" {{
+                print "location_exposure", $2, $3, $4
+            }}
         ' "$augur_lat_longs" {input.extra} > {output.lat_longs}
         """
 

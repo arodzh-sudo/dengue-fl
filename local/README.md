@@ -41,15 +41,31 @@ over a `REVIEW` one; between equal flags, the run listed last wins.
 
 ### `local/input/metadata.txt`
 
-Tab-delimited, one row per sample, with these five columns:
+Tab-delimited, one row per sample. These five columns are required:
 
 | Column | Notes |
 |---|---|
 | `sample_id` | the laboratory identifier, without run tags |
 | `collection_date` | `YYYY-MM-DD`, or `YYYY-MM-XX` / `YYYY-XX-XX` when partial |
-| `location` | county, spelled as in `phylogenetic/defaults/lat_longs.tsv` (e.g. `Dade`) |
+| `location` | county of residence, spelled as in `phylogenetic/defaults/lat_longs.tsv` (e.g. `Dade`) |
 | `case_origin` | `local`, `travel-associated` or `undetermined` |
-| `travel_country` | where infection likely occurred, for imported cases; drives `country_exposure` |
+| `travel_country` | where infection likely occurred, for imported cases. Drives `country_exposure` |
+
+These three are optional. A column left out is derived for every sample. The file
+`results/input_report.txt` says which of them the table supplied:
+
+| Column | Notes |
+|---|---|
+| `host` | overrides the vector name pattern, so a pool the pattern misses can still be labelled |
+| `location_exposure` | county of acquisition, spelled as in the `location` rows of `phylogenetic/defaults/lat_longs.tsv`. Or `Florida` when acquired in state with no county established, or a country as spelled in `phylogenetic/defaults/color_orderings.tsv` |
+| `exposure_confirmed` | `true` when the exposure county was actively established, `false` when it was taken from residence. Accepts true/yes/y/1 and false/no/n/0, in any case |
+
+Leave the last two blank for mosquito pools, which take the trap county and
+`true`. Leave them blank too for travel-associated cases, where
+`travel_country` supplies the value. A blank `location_exposure` on a case with no travel country becomes
+`unknown`, never an empty string, because `augur traits` reads an empty value as
+ambiguous and would reconstruct a Florida county onto the ancestors of foreign
+genomes.
 
 The table may list samples that were never sequenced or did not pass VADR; they
 are ignored. A sequenced sample needs a row here, because the collection date

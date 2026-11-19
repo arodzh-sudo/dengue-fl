@@ -17,6 +17,10 @@ from Bio import SeqIO
 UNAMBIGUOUS = set("ACGTU")
 VALID_NT = set("ACGTURYSWKMBDHVN-.")
 CASE_ORIGINS = {"local", "travel-associated", "undetermined", ""}
+EXPOSURE_CONFIRMED = {
+    "": "", "true": "true", "yes": "true", "y": "true", "1": "true",
+    "false": "false", "no": "false", "n": "false", "0": "false",
+}
 
 
 def parse_args():
@@ -96,6 +100,20 @@ def read_region_map(path):
     return mapping
 
 
+def read_counties(path):
+    """Florida county names, from the location rows of the Auspice lat_longs file."""
+    if not path or not os.path.exists(path):
+        return set()
+    counties = set()
+    with open(path, encoding="utf-8") as handle:
+        for line in handle:
+            if line.startswith("location\t"):
+                fields = line.rstrip("\n").split("\t")
+                if len(fields) > 1 and fields[1].strip():
+                    counties.add(fields[1].strip())
+    return counties
+
+
 def normalise_serotype(value):
     match = re.search(r"([1-4])", value or "")
     if not match:
@@ -151,6 +169,7 @@ def main():
     id_pattern = re.compile(rules["id_regex"])
     host_map = read_host_map(rules.get("host_map"))
     region_map = read_region_map(rules.get("region_map"))
+    counties = read_counties(rules.get("county_map"))
     allowed = set(rules["allowed_serotypes"])
     today = date.today()
 
@@ -233,6 +252,50 @@ def main():
                     f"ordering file, so region_exposure stays {region_exposure!r}"
                 )
 
+        # Exposure county. Blank is not an option: augur traits reads a missing
+        # value as ambiguous and would reconstruct a Florida county onto the
+        # ancestors of foreign genomes, which is why plain location is kept out
+        # of traits_columns.
+        location_exposure = record.get("location_exposure", "")
+        exposure_confirmed = EXPOSURE_CONFIRMED.get(
+            record.get("exposure_confirmed", "").lower(), None
+        )
+        if exposure_confirmed is None:
+            warnings.append(
+                f"{sample_id}: exposure_confirmed {record.get('exposure_confirmed')!r} is not a "
+                "boolean, so it will be treated as unrecorded"
+            )
+            exposure_confirmed = ""
+        if host_type and host_type != "Human":
+            # A trapped pool was infected where it was trapped, so the trap
+            # county is the exposure county and nothing else can be.
+            trapped = record.get("location", "")
+            if location_exposure and location_exposure != trapped:
+                warnings.append(
+                    f"{sample_id}: location_exposure {location_exposure!r} on a "
+                    f"{host_type.lower()} sample is overridden by the trap county "
+                    f"{trapped!r}"
+                )
+            location_exposure = trapped
+            exposure_confirmed = "true"
+        elif location_exposure and travel_country:
+            warnings.append(
+                f"{sample_id}: location_exposure {location_exposure!r} is set alongside "
+                f"travel_country {travel_country!r}. Keeping the county and leaving "
+                "country_exposure on the travel country"
+            )
+        elif travel_country:
+            location_exposure = travel_country
+        if not location_exposure:
+            location_exposure = "unknown"
+        if location_exposure not in counties and location_exposure not in region_map:
+            if location_exposure not in ("Florida", "unknown"):
+                warnings.append(
+                    f"{sample_id}: location_exposure {location_exposure!r} is neither a Florida "
+                    "county in the lat_longs file nor a country in the colour ordering file, so "
+                    "it will plot nowhere and draw no transmission line"
+                )
+
         record.update(
             {
                 "accession": sample_id,
@@ -245,6 +308,8 @@ def main():
                 "genotype_nextclade": clade,
                 "country_exposure": country_exposure,
                 "region_exposure": region_exposure,
+                "location_exposure": location_exposure,
+                "exposure_confirmed": exposure_confirmed,
                 "date_released": today.isoformat(),
                 "date_updated": today.isoformat(),
             }

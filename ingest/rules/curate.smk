@@ -107,6 +107,10 @@ rule add_metadata_columns:
       which augur traits reconstructs from instead of the collection location.
       GenBank carries no travel history, so these copy country and region. Local
       samples set them from travel_country when a case was imported.
+    - [NEW] location_exposure: the finest known exposure location, so it is mixed
+      resolution. Public rows copy country, because a blank would read as
+      ambiguous and let augur traits reconstruct a Florida county onto the
+      ancestors of foreign genomes. Local samples set it to the exposure county.
     """
     input:
         metadata="data/all_metadata_curated.tsv",
@@ -126,6 +130,7 @@ rule add_metadata_columns:
           -e '"{params.data_source}"' \
         | csvtk mutate2 -t -n country_exposure -e '$country' \
         | csvtk mutate2 -t -n region_exposure -e '$region' \
+        | csvtk mutate2 -t -n location_exposure -e '$country' \
         > {output.metadata}
         """
 

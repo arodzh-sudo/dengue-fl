@@ -53,16 +53,21 @@ filter:
 # and location are offered without lines on purpose: most public rows carry no
 # county, so reconstructing it would put Florida counties on foreign ancestors.
 #
+# location_exposure is the county-level column that does get reconstructed. It is
+# safe to because every row carries an explicit value, a county for a Florida
+# case and the country for a public one, so there is no blank for the model to
+# fill with a county. It is therefore mixed resolution by design.
+#
 # The all build stays on region alone, matching upstream, because country level
 # reconstruction across four serotypes is slow and not very meaningful.
 traits:
   sampling_bias_correction: '3'
   traits_columns:
     all: 'region region_exposure serotype_genbank'
-    denv1: 'country region country_exposure region_exposure serotype_genbank'
-    denv2: 'country region country_exposure region_exposure serotype_genbank'
-    denv3: 'country region country_exposure region_exposure serotype_genbank'
-    denv4: 'country region country_exposure region_exposure serotype_genbank'
+    denv1: 'country region country_exposure region_exposure location_exposure serotype_genbank'
+    denv2: 'country region country_exposure region_exposure location_exposure serotype_genbank'
+    denv3: 'country region country_exposure region_exposure location_exposure serotype_genbank'
+    denv4: 'country region country_exposure region_exposure location_exposure serotype_genbank'
 
 export:
   description: "defaults/description.md"

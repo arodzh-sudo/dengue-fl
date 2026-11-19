@@ -125,6 +125,7 @@ curate:
     "data_source",
     "country_exposure",
     "region_exposure",
+    "location_exposure",
   ]
 
 nextclade:

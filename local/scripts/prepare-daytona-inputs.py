@@ -20,6 +20,9 @@ from collections import Counter, defaultdict
 from Bio import SeqIO
 
 METADATA_COLUMNS = ["sample_id", "collection_date", "location", "case_origin", "travel_country"]
+# Copied through when the operator supplies them. Dropping one silently would let every case
+# acquired in Florida fall back to its residence county with nothing said about it.
+PASSTHROUGH_COLUMNS = ["location_exposure", "exposure_confirmed"]
 REPORT_COLUMNS = ["sample_id", "serotype", "nextclade_clade", "vadr_flag"]
 OUTPUT_COLUMNS = [
     "sample_id",
@@ -29,6 +32,8 @@ OUTPUT_COLUMNS = [
     "location",
     "case_origin",
     "travel_country",
+    "location_exposure",
+    "exposure_confirmed",
     "host",
     "vadr_flag",
 ]
@@ -116,8 +121,8 @@ def main():
     vector = re.compile(args.vector_pattern)
     synonyms = read_synonyms(args.synonyms)
 
-    header, metadata_rows = read_tsv(args.metadata)
-    require_columns(args.metadata, header, METADATA_COLUMNS)
+    metadata_header, metadata_rows = read_tsv(args.metadata)
+    require_columns(args.metadata, metadata_header, METADATA_COLUMNS)
     metadata = {}
     for row in metadata_rows:
         if row["sample_id"] in metadata:
@@ -208,6 +213,7 @@ def main():
                 "travel_country": synonyms.get(travel_country, travel_country),
                 "host": host,
                 "vadr_flag": run_row["flag"],
+                **{column: epi.get(column, "") for column in PASSTHROUGH_COLUMNS},
             })
             fasta.write(f">{sample_id}\n{records[0].seq}\n")
 
@@ -242,6 +248,12 @@ def main():
         emit(f"samples written: {len(kept)}"
              f" ({', '.join(f'{f} {n}' for f, n in sorted(Counter(r['vadr_flag'] for r in kept).items()))})")
         emit(f"metadata rows: {len(metadata)}, used: {len(used)}")
+        for column in PASSTHROUGH_COLUMNS:
+            if column not in metadata_header:
+                emit(f"{column}: not a column of {args.metadata}, so every sample derives it")
+            else:
+                emit(f"{column}: supplied for {sum(1 for row in kept if row[column])}"
+                     f" of {len(kept)} samples")
 
         section("excluded, no metadata row (no collection date)", no_metadata, lambda i: f"{i[0]}\t{i[1]}")
         section("excluded, PASS sample with no FASTA in pass/", missing_fasta, lambda i: f"{i[1]}\t{i[2]}\t{i[0]}")
